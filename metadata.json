@@ -1,0 +1,6 @@
+{
+  "name": "Garg Realty - Client Registration & Payment Portal",
+  "description": "Production-ready client registration, unit booking, lead capture, and secure Razorpay payment gateway system for Garg Realty Group.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

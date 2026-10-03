@@ -1,0 +1,29 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Only authenticated admins with valid admin claims or service accounts can read/write directly
+    match /registrations/{registrationId} {
+      allow read: if request.auth != null && request.auth.token.role in ['SUPER_ADMIN', 'ADMIN', 'VIEWER'];
+      allow write: if request.auth != null && request.auth.token.role in ['SUPER_ADMIN', 'ADMIN'];
+    }
+
+    match /payments/{paymentId} {
+      allow read: if request.auth != null && request.auth.token.role in ['SUPER_ADMIN', 'ADMIN', 'VIEWER'];
+      allow write: if request.auth != null && request.auth.token.role in ['SUPER_ADMIN', 'ADMIN'];
+    }
+
+    match /projects/{projectId} {
+      allow read: if true; // Public can view project catalogue
+      allow write: if request.auth != null && request.auth.token.role in ['SUPER_ADMIN', 'ADMIN'];
+    }
+
+    match /webhook_events/{eventId} {
+      allow read, write: if false; // Strict backend only
+    }
+
+    match /audit_logs/{logId} {
+      allow read: if request.auth != null && request.auth.token.role in ['SUPER_ADMIN', 'ADMIN'];
+      allow write: if false; // Append-only via backend
+    }
+  }
+}
