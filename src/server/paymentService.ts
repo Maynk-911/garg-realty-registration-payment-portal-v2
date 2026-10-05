@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { db } from './db.js';
 import { crmService } from './crmService.js';
 import { emailService } from './emailService.js';
+import { googleSheetsService } from './googleSheetsService.js';
 import { Registration, PaymentRecord, PaymentStatus, WebhookEvent } from '../types.js';
 
 export interface CreateOrderParams {
@@ -135,8 +136,8 @@ export class PaymentService {
 
     db.savePayment(paymentRecord);
 
-    // Update registration payment status
-    registration.payment_status = 'INITIATED';
+    // Update registration payment status strictly to PENDING
+    registration.payment_status = 'PENDING';
     registration.updated_at = new Date().toISOString();
     db.saveRegistration(registration);
 
@@ -210,6 +211,9 @@ export class PaymentService {
     registration.mode_of_payment = payment.payment_method;
     registration.updated_at = now;
     db.saveRegistration(registration);
+    googleSheetsService.syncRegistration(registration).catch(err => {
+      console.warn('Google Sheets sync warning (verify):', err.message);
+    });
 
     // Audit log
     db.logAudit({
@@ -314,6 +318,9 @@ export class PaymentService {
               registration.total_payment_received = paymentRecord.amount;
               registration.updated_at = now;
               db.saveRegistration(registration);
+              googleSheetsService.syncRegistration(registration).catch(err => {
+                console.warn('Google Sheets sync warning (webhook):', err.message);
+              });
 
               emailService.notifyAdminPaymentSuccess(registration, paymentRecord).catch(console.error);
               emailService.sendClientBookingConfirmation(registration, paymentRecord).catch(console.error);
@@ -347,6 +354,9 @@ export class PaymentService {
               registration.payment_status = 'FAILED';
               registration.updated_at = new Date().toISOString();
               db.saveRegistration(registration);
+              googleSheetsService.syncRegistration(registration).catch(err => {
+                console.warn('Google Sheets sync warning (failed):', err.message);
+              });
             }
           }
         }

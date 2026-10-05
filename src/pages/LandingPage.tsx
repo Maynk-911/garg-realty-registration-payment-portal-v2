@@ -3,251 +3,176 @@ import { Project } from '../types.js';
 import { 
   ShieldCheck, 
   ArrowRight, 
-  CheckCircle2, 
   TrendingUp, 
   MapPin, 
-  Clock, 
   Lock, 
   FileText,
-  BadgePercent,
+  Clock,
   Sparkles
 } from 'lucide-react';
 
 interface LandingPageProps {
   projects: Project[];
-  onSelectProject: (projectId: string) => void;
   onStartRegistration: () => void;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({
   projects,
-  onSelectProject,
   onStartRegistration
 }) => {
+  const pangotProject = projects.find(p => p.id === 'proj_pangot') || projects[0];
+  const tokenAmount = pangotProject ? pangotProject.token_amount : 50000;
+
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-[calc(100vh-80px)] bg-slate-50 flex flex-col justify-between">
       
-      {/* Hero Section */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-[#0f5973] via-[#0b485d] to-[#073240] text-white pt-16 pb-20 px-4 sm:px-6 lg:px-8">
+      {/* Premium Hero Section */}
+      <section className="relative overflow-hidden bg-gradient-to-b from-[#0f5973] via-[#0c4c62] to-[#083545] text-white py-16 sm:py-24 px-4 sm:px-6 lg:px-8">
         
-        {/* Decorative background grid subtle overlay */}
+        {/* Subtle grid pattern */}
         <div className="absolute inset-0 bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:24px_24px] opacity-10 pointer-events-none"></div>
 
-        <div className="relative max-w-5xl mx-auto text-center">
+        <div className="relative max-w-4xl mx-auto text-center">
           
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/15 text-amber-300 text-xs font-semibold mb-6">
+          {/* Project Kicker */}
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-amber-300 text-xs font-semibold mb-6">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Official Unit Reservation & Token Payment Portal</span>
+            <span>Pangot Booking · Official Allotment & Plot Details Portal</span>
           </div>
 
-          <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight font-['Playfair_Display'] leading-tight mb-4">
-            Complete Your Registration & Unit Booking
+          {/* Main Title */}
+          <h1 className="text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight font-['Playfair_Display'] leading-[1.15] mb-5">
+            Pangot Luxury Plots & Cottages
           </h1>
 
-          <p className="text-base sm:text-xl text-teal-100/90 max-w-2xl mx-auto font-normal leading-relaxed mb-8">
-            Fill in your applicant details, select your plot or unit, and securely complete your token payment. Token amounts are <span className="text-amber-300 font-semibold underline underline-offset-4">100% refundable within 15 days</span>.
+          {/* User Requested Supporting Text */}
+          <p className="text-base sm:text-xl text-teal-100/90 max-w-2xl mx-auto font-normal leading-relaxed mb-10">
+            Secure your Pangot unit registration online.
           </p>
 
+          {/* The Main CTA Button Requested */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <button
               onClick={onStartRegistration}
-              className="w-full sm:w-auto px-8 py-3.5 bg-[#b87e2b] hover:bg-[#a66f24] text-white font-bold text-sm uppercase tracking-wider rounded-lg shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer transform hover:-translate-y-0.5"
+              className="w-full sm:w-auto px-10 py-4 bg-[#b87e2b] hover:bg-[#a66f24] active:scale-[0.99] text-white font-bold text-sm sm:text-base uppercase tracking-wider rounded-xl shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-3 cursor-pointer"
             >
-              <span>Register / Book Unit Now</span>
+              <span>REGISTER / BOOK UNIT</span>
+              <ArrowRight className="w-5 h-5" />
+            </button>
+          </div>
+
+          <p className="text-xs text-teal-200/80 mt-4">
+            Token Advance: <strong className="text-white">₹{tokenAmount.toLocaleString('en-IN')}</strong> · 100% Fully Refundable within 15 Days
+          </p>
+
+          {/* Key Parameters Pill Bar */}
+          <div className="mt-12 pt-8 border-t border-white/15 grid grid-cols-2 md:grid-cols-4 gap-4 text-left">
+            <div className="bg-white/5 border border-white/10 p-3.5 rounded-xl backdrop-blur-xs">
+              <div className="flex items-center gap-2 text-amber-300 mb-1">
+                <MapPin className="w-4 h-4" />
+                <span className="text-[11px] font-bold uppercase tracking-wider">Location</span>
+              </div>
+              <p className="text-xs font-semibold text-white">Pangot, Nainital</p>
+              <p className="text-[11px] text-teal-200/80">Uttarakhand Hills</p>
+            </div>
+
+            <div className="bg-white/5 border border-white/10 p-3.5 rounded-xl backdrop-blur-xs">
+              <div className="flex items-center gap-2 text-amber-300 mb-1">
+                <TrendingUp className="w-4 h-4" />
+                <span className="text-[11px] font-bold uppercase tracking-wider">Targeted ROI</span>
+              </div>
+              <p className="text-xs font-semibold text-white">14.5% per annum</p>
+              <p className="text-[11px] text-teal-200/80">High Rental Yield</p>
+            </div>
+
+            <div className="bg-white/5 border border-white/10 p-3.5 rounded-xl backdrop-blur-xs">
+              <div className="flex items-center gap-2 text-amber-300 mb-1">
+                <ShieldCheck className="w-4 h-4" />
+                <span className="text-[11px] font-bold uppercase tracking-wider">Refund Terms</span>
+              </div>
+              <p className="text-xs font-semibold text-white">15-Day 100% Refund</p>
+              <p className="text-[11px] text-teal-200/80">Zero Cancellation Fee</p>
+            </div>
+
+            <div className="bg-white/5 border border-white/10 p-3.5 rounded-xl backdrop-blur-xs">
+              <div className="flex items-center gap-2 text-amber-300 mb-1">
+                <Lock className="w-4 h-4" />
+                <span className="text-[11px] font-bold uppercase tracking-wider">Security</span>
+              </div>
+              <p className="text-xs font-semibold text-white">Razorpay Encrypted</p>
+              <p className="text-[11px] text-teal-200/80">Server Verified</p>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      {/* Pangot Unit Allotment Details & How it works */}
+      <section className="py-14 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto w-full">
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 sm:p-10">
+          
+          <div className="border-b border-slate-100 pb-5 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider text-[#b87e2b]">
+                Pangot Project Overview
+              </span>
+              <h2 className="text-xl sm:text-2xl font-bold text-[#0f5973] font-['Playfair_Display']">
+                Plot & Cottage Reservation Terms
+              </h2>
+            </div>
+            <span className="inline-flex items-center px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-semibold rounded-full border border-emerald-200">
+              ● Allotments Active
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8 text-xs text-slate-700">
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+              <p className="text-slate-400 font-semibold mb-1">Unit Types</p>
+              <p className="font-bold text-slate-900 text-sm">200, 350 & 500 Sq. Yds</p>
+              <p className="text-slate-500 mt-1">Cottage and villa plots with clear freehold title and registry.</p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+              <p className="text-slate-400 font-semibold mb-1">Token Advance</p>
+              <p className="font-bold text-[#0f5973] text-sm">₹50,000 / Unit</p>
+              <p className="text-slate-500 mt-1">Directly credited toward overall purchase price schedule.</p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+              <p className="text-slate-400 font-semibold mb-1">Immediate Allotment</p>
+              <p className="font-bold text-slate-900 text-sm">Digital GRG Receipt</p>
+              <p className="text-slate-500 mt-1">Instant Booking & Plot Details Form (PDF) with verification number.</p>
+            </div>
+          </div>
+
+          {/* Bottom Action inside Card */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t border-slate-100">
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <Clock className="w-4 h-4 text-[#0f5973]" />
+              <span>Takes less than 3 minutes to complete online</span>
+            </div>
+
+            <button
+              onClick={onStartRegistration}
+              className="w-full sm:w-auto px-8 py-3 bg-[#0f5973] hover:bg-[#0a4358] text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>REGISTER / BOOK UNIT NOW</span>
               <ArrowRight className="w-4 h-4" />
             </button>
-
-            <a
-              href="#projects"
-              className="w-full sm:w-auto px-6 py-3.5 bg-white/10 hover:bg-white/15 border border-white/20 text-white font-medium text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
-            >
-              <FileText className="w-4 h-4 text-teal-200" />
-              <span>Explore Available Projects</span>
-            </a>
           </div>
 
-          {/* Quick Trust Badges below Hero */}
-          <div className="mt-12 pt-8 border-t border-white/15 grid grid-cols-2 md:grid-cols-4 gap-4 text-left">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-md bg-white/10 flex items-center justify-center text-amber-300 flex-shrink-0">
-                <ShieldCheck className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-white leading-tight">15-Day 100% Refund</p>
-                <p className="text-[11px] text-teal-200/80">Guaranteed on cancellation</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-md bg-white/10 flex items-center justify-center text-amber-300 flex-shrink-0">
-                <Lock className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-white leading-tight">Razorpay Secure</p>
-                <p className="text-[11px] text-teal-200/80">256-bit encrypted checkout</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-md bg-white/10 flex items-center justify-center text-amber-300 flex-shrink-0">
-                <FileText className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-white leading-tight">Instant Allotment ID</p>
-                <p className="text-[11px] text-teal-200/80">Official GRG human-readable ref</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-md bg-white/10 flex items-center justify-center text-amber-300 flex-shrink-0">
-                <Clock className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-white leading-tight">Instant Confirmation</p>
-                <p className="text-[11px] text-teal-200/80">Receipt & SMS dispatch</p>
-              </div>
-            </div>
-          </div>
         </div>
       </section>
 
-      {/* Featured Booking Showcase (Pangot Booking highlighted as in PDF) */}
-      <section id="projects" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <div className="text-center max-w-2xl mx-auto mb-12">
-          <span className="text-xs font-bold uppercase tracking-wider text-[#b87e2b]">
-            Current Open Allotments
-          </span>
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-[#0f5973] mt-1 font-['Playfair_Display']">
-            Select Your Preferred Development
-          </h2>
-          <p className="text-sm text-slate-600 mt-2">
-            Token payments secure unit allocation. Complete the official Booking & Plot Details form online in 3 minutes.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {projects.map((proj) => {
-            const isPangot = proj.id === 'proj_pangot';
-            return (
-              <div 
-                key={proj.id}
-                className={`bg-white rounded-xl border transition-all duration-200 flex flex-col justify-between overflow-hidden shadow-xs hover:shadow-md ${
-                  isPangot 
-                    ? 'border-[#0f5973] ring-1 ring-[#0f5973]' 
-                    : 'border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                {/* Project Header Banner */}
-                <div className={`p-4 ${isPangot ? 'bg-[#0f5973] text-white' : 'bg-slate-100 text-slate-800'}`}>
-                  {isPangot && (
-                    <div className="text-[10px] uppercase font-bold text-amber-300 tracking-wider mb-1">
-                      Featured in Official Form
-                    </div>
-                  )}
-                  <h3 className="font-bold text-base leading-snug">{proj.name}</h3>
-                  <div className="flex items-center gap-1 mt-1 text-xs opacity-80">
-                    <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
-                    <span className="truncate">{proj.location}</span>
-                  </div>
-                </div>
-
-                {/* Project Body */}
-                <div className="p-5 flex-1 flex flex-col justify-between">
-                  <div>
-                    <p className="text-xs text-slate-600 leading-relaxed line-clamp-3 mb-4">
-                      {proj.description}
-                    </p>
-
-                    <div className="space-y-2 mb-4 bg-slate-50 p-3 rounded-lg border border-slate-100 text-xs">
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-500">Token Advance:</span>
-                        <span className="font-bold text-[#0f5973]">
-                          ₹ {proj.token_amount.toLocaleString('en-IN')}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-500">Targeted ROI:</span>
-                        <span className="font-semibold text-emerald-700 flex items-center gap-0.5">
-                          <TrendingUp className="w-3 h-3" />
-                          {proj.roi_percentage}% p.a.
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-500">Est. Total Price:</span>
-                        <span className="font-medium text-slate-700">
-                          From ₹ {(proj.total_price / 100000).toFixed(1)} Lakhs
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Key features */}
-                    <div className="space-y-1.5 mb-5 text-[11px] text-slate-600">
-                      {proj.features.slice(0, 3).map((f, i) => (
-                        <div key={i} className="flex items-start gap-1.5">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-[#0f5973] flex-shrink-0 mt-0.5" />
-                          <span>{f}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      onSelectProject(proj.id);
-                      onStartRegistration();
-                    }}
-                    className={`w-full py-2.5 px-4 text-xs font-bold uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer ${
-                      isPangot 
-                        ? 'bg-[#0f5973] hover:bg-[#0a4358] text-white shadow-xs' 
-                        : 'bg-[#b87e2b] hover:bg-[#a66f24] text-white'
-                    }`}
-                  >
-                    <span>Book Plot Now</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Trust & Transparency Section */}
-      <section className="bg-white border-y border-slate-200 py-16 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-5xl mx-auto">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="text-center p-6 rounded-xl bg-slate-50 border border-slate-100">
-              <div className="w-12 h-12 mx-auto rounded-full bg-teal-100/60 text-[#0f5973] flex items-center justify-center mb-4">
-                <BadgePercent className="w-6 h-6" />
-              </div>
-              <h3 className="font-bold text-base text-slate-900 mb-2">15-Day Cancellation Guarantee</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                As clearly stated in Section 6 of our booking terms: The token amount is 100% fully refundable if booking is cancelled within 15 days of payment.
-              </p>
-            </div>
-
-            <div className="text-center p-6 rounded-xl bg-slate-50 border border-slate-100">
-              <div className="w-12 h-12 mx-auto rounded-full bg-teal-100/60 text-[#0f5973] flex items-center justify-center mb-4">
-                <Lock className="w-6 h-6" />
-              </div>
-              <h3 className="font-bold text-base text-slate-900 mb-2">Server-Verified Gateway</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                All transactions are processed through Razorpay with HMAC SHA-256 cryptographic webhook verification. No payment credentials ever touch the frontend.
-              </p>
-            </div>
-
-            <div className="text-center p-6 rounded-xl bg-slate-50 border border-slate-100">
-              <div className="w-12 h-12 mx-auto rounded-full bg-teal-100/60 text-[#0f5973] flex items-center justify-center mb-4">
-                <FileText className="w-6 h-6" />
-              </div>
-              <h3 className="font-bold text-base text-slate-900 mb-2">Formal Allotment Receipt</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Receive an immediate digital Booking & Plot Details Form with unique registration reference (e.g. GRG-2026-000021), ready to download and print.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
+      {/* Clean Minimal Footer */}
+      <footer className="bg-white border-t border-slate-200 py-6 px-4 text-center text-xs text-slate-500">
+        <p className="font-semibold text-slate-700">
+          Thanks & Regards | Garg Residency Private Limited
+        </p>
+        <p className="text-[11px] text-slate-400 mt-1">
+          Official Allotment & Plot Details Portal · Driven by Trust, Defined by Excellence.
+        </p>
+      </footer>
 
     </div>
   );

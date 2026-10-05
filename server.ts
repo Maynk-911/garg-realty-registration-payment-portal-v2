@@ -6,7 +6,8 @@ import { db } from './src/server/db.js';
 import { paymentService } from './src/server/paymentService.js';
 import { crmService } from './src/server/crmService.js';
 import { emailService } from './src/server/emailService.js';
-import { Registration, PaymentStatus, RegistrationStatus } from './src/types.js';
+import { Registration, PaymentStatus, RegistrationStatus, PaymentRecord } from './src/types.js';
+import { googleSheetsService, GOOGLE_SHEET_COLUMNS, SPREADSHEET_NAME, ALLOWED_PLANS } from './src/server/googleSheetsService.js';
 
 dotenv.config();
 
@@ -112,7 +113,7 @@ app.get('/api/projects', (_req: Request, res: Response) => {
 });
 
 // 3. Submit Registration & Create Payment Order
-app.post('/api/registration/submit', async (req: Request, res: Response) => {
+app.post(['/api/registration/submit', '/api/register'], async (req: Request, res: Response) => {
   try {
     const {
       fullName,
@@ -170,20 +171,34 @@ app.post('/api/registration/submit', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'You must accept the Terms & Conditions and Privacy Policy consent' });
     }
 
-    // Lookup project from database (NEVER trust client-sent prices)
-    const project = db.getProject(projectId);
-    if (!project || !project.active) {
-      return res.status(400).json({ error: 'The selected project is not currently available for booking' });
+    // Project is strictly locked to Pangot
+    const targetProjectId = projectId || 'proj_pangot';
+    const project = db.getProject(targetProjectId) || db.getProject('proj_pangot');
+    if (!project) {
+      return res.status(400).json({ error: 'The Pangot project is not currently available for booking' });
     }
 
-    // Calculate server-side token & payable amounts
-    const tokenAmount = project.token_amount;
-    const taxPercentage = project.tax_percentage || 0;
-    const taxAmount = Math.round((tokenAmount * taxPercentage) / 100);
-    const totalPayable = tokenAmount + taxAmount;
+    // Strict Plan Validation: must ONLY accept one of the 4 allowed values
+    const rawPlan = (req.body.selectedPlan || req.body.unitSize || '').trim();
+    if (!rawPlan || !ALLOWED_PLANS.includes(rawPlan as any)) {
+      return res.status(400).json({
+        error: `Invalid plan selected. Selected Plan must be strictly one of: ${ALLOWED_PLANS.join(', ')}`
+      });
+    }
+    const selectedPlan = rawPlan;
+    const plan = project.ownership_plans?.find(p => p.name === selectedPlan || p.label === selectedPlan);
+    const unitsCount = Math.max(1, parseInt(req.body.numberOfUnits || req.body.unitsCount || '1', 10));
+    const tokenPerUnit = 50000; // Fixed token amount per unit
+    const tokenAmount = tokenPerUnit * unitsCount;
+    const taxPercentage = 0; // Fixed 0% surcharge on advance token
+    const taxAmount = 0;
+    const totalPayable = tokenAmount;
 
-    // Check for existing pending registration with exact same details to prevent duplicates
+    // Check for existing pending registration with exact same details to prevent duplicates (only if unpaid)
     let registration = db.findRegistrationByEmailOrPhone(email, mobileCheck.normalized);
+    if (registration && registration.payment_status === 'PAID') {
+      registration = null; // Prior registration is completed; allow new booking
+    }
     const isNew = !registration;
 
     const now = new Date().toISOString();
@@ -214,9 +229,11 @@ app.post('/api/registration/submit', async (req: Request, res: Response) => {
         profession: (profession || '').trim(),
         requirement: (requirement || '').trim(),
         project_id: project.id,
-        project_name: project.name,
-        unit_number: (unitNumber || '').trim(),
-        unit_size: (unitSize || '').trim(),
+        project_name: 'Pangot',
+        selected_plan: selectedPlan,
+        units_count: unitsCount,
+        unit_number: selectedPlan,
+        unit_size: selectedPlan,
         floor_no: (floorNo || '').trim(),
         total_price: project.total_price,
         roi_percentage: project.roi_percentage,
@@ -239,7 +256,7 @@ app.post('/api/registration/submit', async (req: Request, res: Response) => {
         terms_version: 'v2026.1',
         ip_address: clientIp,
         user_agent: userAgent,
-        payment_status: 'INITIATED',
+        payment_status: 'PENDING',
         registration_status: 'SUBMITTED',
         source: source || 'Direct Web',
         utm_source: utmSource,
@@ -256,17 +273,24 @@ app.post('/api/registration/submit', async (req: Request, res: Response) => {
       // Update existing pending registration
       registration.full_name = fullName.trim();
       registration.project_id = project.id;
-      registration.project_name = project.name;
+      registration.project_name = 'Pangot';
+      registration.selected_plan = selectedPlan;
+      registration.units_count = unitsCount;
       registration.token_amount = tokenAmount;
       registration.tax_amount = taxAmount;
       registration.total_payable = totalPayable;
-      registration.unit_number = (unitNumber || registration.unit_number || '').trim();
-      registration.unit_size = (unitSize || registration.unit_size || '').trim();
+      registration.unit_number = selectedPlan;
+      registration.unit_size = selectedPlan;
       registration.floor_no = (floorNo || registration.floor_no || '').trim();
       registration.updated_at = now;
     }
 
     db.saveRegistration(registration);
+
+    // Synchronize to Google Sheet "Payment Domain" (Strict 19 Columns, Safe Formula Escaping, Deduplicated)
+    googleSheetsService.syncRegistration(registration).catch(err => {
+      console.warn('Google Sheets async sync warning:', err.message);
+    });
 
     // Create payment order
     const orderResult = await paymentService.createOrder({
@@ -301,6 +325,157 @@ app.post('/api/registration/submit', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('Error submitting registration:', err);
     res.status(500).json({ error: err.message || 'Something went wrong while creating your registration.' });
+  }
+});
+
+// 4. Submit HDFC SmartHub QR Payment Confirmation (UTR submission)
+// Critical: Payment status must remain PENDING until verified by accounts desk.
+app.post('/api/payment/submit-qr-utr', async (req: Request, res: Response) => {
+  try {
+    const { registrationId, utrNumber, upiApp, senderUpi, notes } = req.body;
+
+    if (!registrationId) {
+      return res.status(400).json({ error: 'registrationId is required' });
+    }
+
+    const cleanUtr = (utrNumber || '').trim();
+    if (!cleanUtr || cleanUtr.length < 6) {
+      return res.status(400).json({ error: 'Please enter a valid Bank UTR / UPI Reference Number (at least 6 characters)' });
+    }
+
+    const registration = db.getRegistration(registrationId);
+    if (!registration) {
+      return res.status(404).json({ error: 'Registration record not found' });
+    }
+
+    const now = new Date().toISOString();
+
+    // Critical Requirement: DO NOT mark as PAID upon user submission!
+    // Payment status must remain PENDING until verified by accounts desk.
+    registration.utr_number = cleanUtr;
+    registration.upi_app = (upiApp || 'UPI Scan & Pay').trim();
+    registration.sender_upi = (senderUpi || '').trim();
+    registration.payment_submitted_at = now;
+    registration.payment_status = 'PENDING';
+    registration.registration_status = 'IN_REVIEW';
+    registration.mode_of_payment = 'HDFC SmartHub QR (TID: 68283784)';
+    registration.updated_at = now;
+
+    if (notes) {
+      registration.notes = `${registration.notes ? registration.notes + ' | ' : ''}UTR Notes: ${notes}`;
+    }
+
+    db.saveRegistration(registration);
+
+    // Sync to Google Sheet "Payment Domain" (row updated with UTR and PENDING status)
+    googleSheetsService.syncRegistration(registration).catch(err => {
+      console.warn('Google Sheets sync warning:', err.message);
+    });
+
+    // Create payment record with PENDING status
+    const paymentRecord: PaymentRecord = {
+      id: `pay_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`,
+      registration_id: registration.id,
+      registration_number: registration.registration_number,
+      gateway: 'HDFC_SMARTHUB_QR',
+      gateway_order_id: `hdfc_qr_${registration.registration_number}`,
+      gateway_payment_id: cleanUtr,
+      utr_number: cleanUtr,
+      amount: registration.total_payable,
+      currency: 'INR',
+      payment_status: 'PENDING',
+      payment_method: `HDFC SmartHub QR (${registration.upi_app})`,
+      signature_verified: false,
+      webhook_verified: false,
+      attempt_number: 1,
+      created_at: now,
+      updated_at: now
+    };
+    db.savePayment(paymentRecord);
+
+    db.logAudit({
+      action: 'PAYMENT_UTR_SUBMITTED',
+      admin_id: registration.full_name,
+      entity_type: 'PAYMENT',
+      entity_id: registration.id,
+      new_value: {
+        registration_number: registration.registration_number,
+        utr_number: cleanUtr,
+        upi_app: registration.upi_app,
+        amount: registration.total_payable,
+        payment_status: 'PENDING'
+      }
+    });
+
+    res.json({
+      success: true,
+      status: 'PENDING',
+      message: 'Payment reference submitted. Your payment is PENDING verification with HDFC Bank SmartHub.',
+      registration
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin endpoint to verify a pending payment UTR and mark it PAID
+app.post('/api/admin/verify-payment', authenticateAdmin, (req: Request, res: Response) => {
+  try {
+    const { registrationId, verified, notes } = req.body;
+    const registration = db.getRegistration(registrationId);
+    if (!registration) {
+      return res.status(404).json({ error: 'Registration not found' });
+    }
+
+    const now = new Date().toISOString();
+    if (verified) {
+      registration.payment_status = 'PAID';
+      registration.registration_status = 'CONFIRMED';
+      registration.total_payment_received = registration.total_payable;
+      registration.payment_verified_at = now;
+      registration.payment_verified_by = 'Accounts Desk';
+      registration.updated_at = now;
+    } else {
+      registration.payment_status = 'FAILED';
+      registration.updated_at = now;
+    }
+
+    if (notes) {
+      registration.notes = `${registration.notes ? registration.notes + ' | ' : ''}Verification Notes: ${notes}`;
+    }
+
+    db.saveRegistration(registration);
+
+    // Sync verified PAID/FAILED status to Google Sheet "Payment Domain" (row updated in place)
+    googleSheetsService.syncRegistration(registration).catch(err => {
+      console.warn('Google Sheets sync warning:', err.message);
+    });
+
+    // Update payment record
+    const payments = db.getPaymentsForRegistration(registration.id);
+    if (payments.length > 0) {
+      const p = payments[payments.length - 1];
+      p.payment_status = verified ? 'PAID' : 'FAILED';
+      p.signature_verified = true;
+      p.verified_at = now;
+      db.savePayment(p);
+    }
+
+    db.logAudit({
+      action: verified ? 'PAYMENT_VERIFIED_SUCCESS' : 'PAYMENT_VERIFIED_REJECTED',
+      admin_id: 'admin',
+      entity_type: 'PAYMENT',
+      entity_id: registration.id,
+      new_value: {
+        registration_number: registration.registration_number,
+        payment_status: registration.payment_status,
+        utr_number: registration.utr_number
+      }
+    });
+
+    res.json({ success: true, registration });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -673,9 +848,82 @@ app.get('/api/admin/audit-logs', authenticateAdmin, (_req: Request, res: Respons
 });
 
 // -------------------------------------------------------------
+// GOOGLE SHEETS "Payment Domain" INTEGRATION ENDPOINTS
+// -------------------------------------------------------------
+
+// Get Google Sheets sync status and column schema (Admin Only)
+app.get('/api/admin/google-sheets/status', authenticateAdmin, (_req: Request, res: Response) => {
+  const status = googleSheetsService.getStatus();
+  res.json({
+    success: true,
+    ...status,
+    totalRegistrations: db.listRegistrations().length
+  });
+});
+
+// Connect admin Google Workspace OAuth access token (Admin Only)
+app.post('/api/admin/google-sheets/connect', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    const { accessToken, expiresIn } = req.body;
+    if (!accessToken) {
+      return res.status(400).json({ error: 'OAuth accessToken is required' });
+    }
+
+    googleSheetsService.setAccessToken(accessToken, expiresIn || 3600);
+
+    // Sync all existing registrations to "Payment Domain"
+    const syncResult = await googleSheetsService.syncAll(accessToken);
+
+    res.json({
+      success: true,
+      message: 'Google Sheets ("Payment Domain") connected and synchronized successfully',
+      syncResult,
+      status: googleSheetsService.getStatus()
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to connect Google Sheets' });
+  }
+});
+
+// Trigger manual sync of all registrations to "Payment Domain" (Admin Only)
+app.post('/api/admin/google-sheets/sync-all', authenticateAdmin, async (_req: Request, res: Response) => {
+  try {
+    const syncResult = await googleSheetsService.syncAll();
+    res.json({
+      success: true,
+      syncResult,
+      status: googleSheetsService.getStatus()
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to sync Google Sheets' });
+  }
+});
+
+// Format a sample row for testing / previewing (Admin Only)
+app.get('/api/admin/google-sheets/preview-row/:id', authenticateAdmin, (req: Request, res: Response) => {
+  const { id } = req.params;
+  const reg = db.getRegistration(id) || db.getRegistrationByNumber(id);
+  if (!reg) {
+    return res.status(404).json({ error: 'Registration not found' });
+  }
+
+  const { formatRegistrationToRow } = require('./src/server/googleSheetsService.js');
+  const row = formatRegistrationToRow(reg);
+  res.json({
+    columns: GOOGLE_SHEET_COLUMNS,
+    row,
+    columnCount: GOOGLE_SHEET_COLUMNS.length
+  });
+});
+
+// -------------------------------------------------------------
 // VITE MIDDLEWARE (DEV) & STATIC (PROD)
 // -------------------------------------------------------------
 async function setupServer() {
+  // Always serve public assets (like /image.png, /hdfc-vyapar-qr.png)
+  const publicPath = path.resolve(process.cwd(), 'public');
+  app.use(express.static(publicPath));
+
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({

@@ -100,7 +100,6 @@ export default function App() {
         {currentView === 'landing' && (
           <LandingPage
             projects={projects}
-            onSelectProject={(id) => setSelectedProjectId(id)}
             onStartRegistration={() => navigateTo('form')}
           />
         )}
@@ -109,12 +108,8 @@ export default function App() {
           <RegistrationFlow
             projects={projects}
             selectedProjectId={selectedProjectId}
-            onSelectProject={(id) => setSelectedProjectId(id)}
             onInitiatePayment={handleInitiatePayment}
-            onViewReceipt={(reg) => {
-              setActiveRegistrationId(reg.id);
-              navigateTo('status');
-            }}
+            onCancel={() => navigateTo('landing')}
           />
         )}
 

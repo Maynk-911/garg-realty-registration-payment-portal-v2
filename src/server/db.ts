@@ -30,8 +30,14 @@ const INITIAL_PROJECTS: Project[] = [
     currency: 'INR',
     tax_percentage: 0, // Advance token booking has no GST surcharge or 0% tax configurable
     roi_percentage: 14.5,
-    unit_types: ['Plot 200 Sq. Yds', 'Plot 350 Sq. Yds', 'Plot 500 Sq. Yds', 'Custom Cottage'],
-    sample_units: ['PG-101', 'PG-102', 'PG-104', 'PG-208', 'PG-302', 'PG-305'],
+    unit_types: ['₹7 L - Co-Own', '₹18 L - Co-Own', 'Studio - Full Own', 'Villa - Full Own'],
+    sample_units: [],
+    ownership_plans: [
+      { id: 'plan_7l_co_own', name: '₹7 L - Co-Own', label: '₹7 L - Co-Own', type: 'CO_OWN', token_amount: 50000, total_price: 700000 },
+      { id: 'plan_18l_co_own', name: '₹18 L - Co-Own', label: '₹18 L - Co-Own', type: 'CO_OWN', token_amount: 50000, total_price: 1800000 },
+      { id: 'plan_studio_full_own', name: 'Studio - Full Own', label: 'Studio - Full Own', type: 'FULL_OWN', token_amount: 50000, total_price: 2500000 },
+      { id: 'plan_villa_full_own', name: 'Villa - Full Own', label: 'Villa - Full Own', type: 'FULL_OWN', token_amount: 50000, total_price: 5000000 }
+    ],
     active: true,
     features: [
       '15-day 100% money back guarantee on token',
@@ -178,7 +184,7 @@ class Database {
     const seq = String(this.data.counters.registration_seq).padStart(6, '0');
     const year = new Date().getFullYear();
     this.save();
-    return `GRG-${year}-${seq}`;
+    return `GRG-PNG-${year}-${seq}`;
   }
 
   public getRegistration(id: string): Registration | null {
@@ -278,10 +284,8 @@ class Database {
 
   public listProjects(onlyActive: boolean = true): Project[] {
     const list = Object.values(this.data.projects);
-    if (onlyActive) {
-      return list.filter(p => p.active);
-    }
-    return list;
+    // Project is strictly locked to Pangot
+    return list.filter(p => p.id === 'proj_pangot');
   }
 
   public saveProject(project: Project): Project {

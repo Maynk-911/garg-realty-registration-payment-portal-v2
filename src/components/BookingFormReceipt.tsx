@@ -128,27 +128,23 @@ export const BookingFormReceipt: React.FC<BookingFormReceiptProps> = ({
           </div>
         </div>
 
-        {/* 2. UNIT DETAILS */}
+        {/* 2. UNIT DETAILS / SELECTED PLAN */}
         <div className="mb-4">
           <div className="bg-[#0f5973] text-white font-bold text-xs uppercase px-3 py-1.5 tracking-wide">
-            2. UNIT DETAILS
+            2. UNIT & ALLOTMENT DETAILS
           </div>
           <div className="border border-slate-300 border-t-0 divide-y divide-slate-200">
             <div className="grid grid-cols-1 sm:grid-cols-4 px-3 py-1.5 items-center">
-              <span className="font-semibold text-slate-600 sm:col-span-1">Unit Number</span>
-              <span className="font-medium text-slate-900 sm:col-span-3">{registration.unit_number || 'Allotted on verification'}</span>
+              <span className="font-semibold text-slate-600 sm:col-span-1">Selected Plan</span>
+              <span className="font-bold text-[#0f5973] sm:col-span-3">{registration.selected_plan || registration.unit_size || '₹7 L - Co-Own'}</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-4 px-3 py-1.5 items-center">
-              <span className="font-semibold text-slate-600 sm:col-span-1">Unit Size / Unit</span>
-              <span className="font-medium text-slate-900 sm:col-span-3">{registration.unit_size || 'Standard Plot / As per Plan'}</span>
+              <span className="font-semibold text-slate-600 sm:col-span-1">Project</span>
+              <span className="font-medium text-slate-900 sm:col-span-3">{registration.project_name || 'Pangot Luxury Plots & Cottages'}</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-4 px-3 py-1.5 items-center">
-              <span className="font-semibold text-slate-600 sm:col-span-1">Floor No.</span>
-              <span className="font-medium text-slate-900 sm:col-span-3">{registration.floor_no || 'Ground / Independent'}</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-4 px-3 py-1.5 items-center">
-              <span className="font-semibold text-slate-600 sm:col-span-1">Total Price</span>
-              <span className="font-semibold text-slate-900 sm:col-span-3">₹ {registration.total_price.toLocaleString('en-IN')}</span>
+              <span className="font-semibold text-slate-600 sm:col-span-1">Requirement</span>
+              <span className="font-medium text-slate-900 sm:col-span-3">{registration.requirement || 'Standard Allotment'}</span>
             </div>
           </div>
         </div>

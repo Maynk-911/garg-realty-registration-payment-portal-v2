@@ -16,6 +16,15 @@ export type RegistrationStatus =
 
 export type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | 'VIEWER';
 
+export interface OwnershipPlan {
+  id: string;
+  name: string;
+  label: string;
+  type?: 'CO_OWN' | 'FULL_OWN';
+  token_amount?: number;
+  total_price?: number;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -29,6 +38,7 @@ export interface Project {
   roi_percentage: number;
   unit_types: string[];
   sample_units: string[];
+  ownership_plans?: OwnershipPlan[];
   active: boolean;
   features: string[];
   created_at: string;
@@ -62,6 +72,8 @@ export interface Registration {
   requirement?: string;
   project_id: string;
   project_name: string;
+  selected_plan?: string;
+  units_count?: number;
   unit_number?: string;
   unit_size?: string;
   floor_no?: string;
@@ -92,6 +104,12 @@ export interface Registration {
   // Statuses
   payment_status: PaymentStatus;
   registration_status: RegistrationStatus;
+  utr_number?: string;
+  upi_app?: string;
+  sender_upi?: string;
+  payment_submitted_at?: string;
+  payment_verified_at?: string;
+  payment_verified_by?: string;
   // Marketing / Tracking
   source?: string;
   campaign?: string;
@@ -110,9 +128,10 @@ export interface PaymentRecord {
   id: string;
   registration_id: string;
   registration_number: string;
-  gateway: 'RAZORPAY' | 'SIMULATED';
+  gateway: 'RAZORPAY' | 'SIMULATED' | 'HDFC_SMARTHUB_QR';
   gateway_order_id: string;
   gateway_payment_id?: string;
+  utr_number?: string;
   amount: number;
   currency: string;
   payment_status: PaymentStatus;

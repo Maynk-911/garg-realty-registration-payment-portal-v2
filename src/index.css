@@ -18,3 +18,58 @@
     display: block !important;
   }
 }
+
+/* Official Google Sign-In Button Styles */
+.gsi-material-button {
+  -moz-user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  -webkit-appearance: none;
+  background-color: #ffffff;
+  background-image: none;
+  border: 1px solid #747775;
+  border-radius: 20px;
+  box-sizing: border-box;
+  color: #1f1f1f;
+  cursor: pointer;
+  font-family: 'Roboto', arial, sans-serif;
+  font-size: 14px;
+  height: 40px;
+  letter-spacing: 0.25px;
+  outline: none;
+  overflow: hidden;
+  padding: 0 16px;
+  position: relative;
+  text-align: center;
+  vertical-align: middle;
+  white-space: nowrap;
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color .218s, border-color .218s, box-shadow .218s;
+}
+
+.gsi-material-button:hover {
+  box-shadow: 0 1px 2px 0 rgba(60, 64, 67, .30), 0 1px 3px 1px rgba(60, 64, 67, .15);
+  background-color: rgba(66, 133, 244, .04);
+}
+
+.gsi-material-button-content-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gsi-material-button-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gsi-material-button-contents {
+  font-weight: 500;
+}
+

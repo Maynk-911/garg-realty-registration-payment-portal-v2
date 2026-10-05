@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000">
+  <rect width="1000" height="1000" fill="#ffffff" />
+  
+  <g transform="translate(0, 0)">
+    <!-- 3-tiered Gold Stepped Pedestal atop the shield -->
+    <!-- Top Step -->
+    <rect x="435" y="16" width="130" height="42" fill="#c68b37" rx="2" />
+    <!-- Middle Step -->
+    <rect x="348" y="78" width="304" height="42" fill="#c68b37" rx="2" />
+    <!-- Bottom Base Bar across Shield Top -->
+    <rect x="280" y="140" width="440" height="42" fill="#c68b37" rx="2" />
+
+    <!-- Shield Outer Frame (Deep Petrol Teal) -->
+    <!-- Width: 440, Height to taper: 390, Point at y=640 -->
+    <path d="M 280 182 
+             L 280 520 
+             L 500 668 
+             L 720 520 
+             L 720 182 
+             Z" 
+          fill="none" 
+          stroke="#0f5973" 
+          stroke-width="50" 
+          stroke-linejoin="miter" />
+
+    <!-- Interior Monogram / Cross Architecture Motif (Petrol Teal) -->
+    <!-- Central Latin Cross / Pillar -->
+    <!-- Vertical Mast -->
+    <rect x="480" y="240" width="40" height="360" fill="#0f5973" />
+    <!-- Horizontal Crossbeam -->
+    <rect x="395" y="420" width="210" height="38" fill="#0f5973" />
+
+    <!-- Left Symmetrical Wing / G Arch -->
+    <path d="M 330 490 
+             L 480 345
+             L 480 260
+             L 330 420
+             Z" 
+          fill="#0f5973" />
+    <path d="M 330 490 
+             L 480 600
+             L 480 540
+             L 360 460
+             Z" 
+          fill="#0f5973" />
+
+    <!-- Right Symmetrical Wing / G Arch -->
+    <path d="M 670 490 
+             L 520 345
+             L 520 260
+             L 670 420
+             Z" 
+          fill="#0f5973" />
+    <path d="M 670 490 
+             L 520 600
+             L 520 540
+             L 640 460
+             Z" 
+          fill="#0f5973" />
+
+    <!-- TEXT SECTION BELOW SHIELD -->
+    <!-- "G A R G" in Gold -->
+    <text x="500" y="840" 
+          font-family="'Times New Roman', 'Playfair Display', Georgia, serif" 
+          font-size="160" 
+          font-weight="400" 
+          fill="#c68b37" 
+          letter-spacing="35" 
+          text-anchor="middle">GARG</text>
+
+    <!-- Thin Gold Divider Line -->
+    <line x1="140" y1="875" x2="860" y2="875" stroke="#c68b37" stroke-width="5" />
+
+    <!-- "REALTY GROUP" in Petrol Teal -->
+    <text x="500" y="975" 
+          font-family="'Plus Jakarta Sans', Arial, Helvetica, sans-serif" 
+          font-size="78" 
+          font-weight="600" 
+          fill="#0f5973" 
+          letter-spacing="18" 
+          text-anchor="middle">REALTY GROUP</text>
+  </g>
+</svg>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, CreditCard, Smartphone, Building2, CheckCircle, AlertTriangle, X } from 'lucide-react';
+import { ShieldCheck, X, AlertCircle, Clock, CheckCircle2, QrCode } from 'lucide-react';
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -8,8 +8,7 @@ interface PaymentModalProps {
     orderId: string;
     amount: number;
     currency: string;
-    keyId: string;
-    isSimulator: boolean;
+    keyId?: string;
   };
   registrationData: {
     id: string;
@@ -18,6 +17,8 @@ interface PaymentModalProps {
     email: string;
     mobile: string;
     projectName: string;
+    selectedPlan?: string;
+    numberOfUnits?: number;
   };
   onSuccess: (paymentResult: any) => void;
   onFailure: (errorMessage: string) => void;
@@ -31,332 +32,286 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   onSuccess,
   onFailure
 }) => {
-  const [selectedMethod, setSelectedMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
-  const [upiId, setUpiId] = useState('user@okhdfcbank');
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [cardDetails, setCardDetails] = useState({
-    number: '4315 •••• •••• 8820',
-    expiry: '12/28',
-    cvv: '•••'
-  });
+  const [utrNumber, setUtrNumber] = useState('');
+  const [upiApp, setUpiApp] = useState('Google Pay');
+  const [senderUpi, setSenderUpi] = useState('');
+  const [hasConfirmedTransfer, setHasConfirmedTransfer] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  // Trigger Razorpay Live Checkout if configured
-  const triggerRazorpayCheckout = () => {
-    if (typeof (window as any).Razorpay !== 'undefined' && !orderData.isSimulator) {
-      try {
-        const rzp = new (window as any).Razorpay({
-          key: orderData.keyId,
-          amount: Math.round(orderData.amount * 100),
-          currency: orderData.currency || 'INR',
-          name: 'Garg Realty Group',
-          description: `Token Booking - ${registrationData.projectName}`,
-          order_id: orderData.orderId,
-          prefill: {
-            name: registrationData.fullName,
-            email: registrationData.email,
-            contact: registrationData.mobile
-          },
-          theme: {
-            color: '#0f5973'
-          },
-          handler: async (response: any) => {
-            setIsProcessing(true);
-            try {
-              const res = await fetch('/api/payment/verify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  registrationId: registrationData.id,
-                  razorpayOrderId: response.razorpay_order_id,
-                  razorpayPaymentId: response.razorpay_payment_id,
-                  razorpaySignature: response.razorpay_signature,
-                  paymentMethod: 'Razorpay Live'
-                })
-              });
-              const data = await res.json();
-              if (data.success) {
-                onSuccess(data);
-              } else {
-                onFailure(data.error || 'Payment signature verification failed');
-              }
-            } catch (err: any) {
-              onFailure(err.message || 'Payment verification failed');
-            } finally {
-              setIsProcessing(false);
-            }
-          },
-          modal: {
-            ondismiss: () => {
-              // user dismissed modal
-            }
-          }
-        });
-        rzp.open();
-        return;
-      } catch (e) {
-        console.warn('Razorpay SDK open error, falling back to simulator:', e);
-      }
+  const handleSubmitVerification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+
+    const cleanUtr = utrNumber.trim();
+    if (!cleanUtr || cleanUtr.length < 6) {
+      setFormError('Please enter a valid 12-digit UTR / UPI Reference Number from your payment app.');
+      return;
     }
-  };
 
-  const handleSimulatedSuccess = async () => {
-    setIsProcessing(true);
+    if (!hasConfirmedTransfer) {
+      setFormError('Please confirm that you have completed the payment before submitting.');
+      return;
+    }
+
+    setIsSubmitting(true);
+
     try {
-      const simulatedPaymentId = `pay_rzp_${Date.now().toString().slice(-8)}`;
-      const simulatedSignature = `sig_verified_${Date.now()}`;
-
-      const res = await fetch('/api/payment/verify', {
+      const response = await fetch('/api/payment/submit-qr-utr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           registrationId: registrationData.id,
-          razorpayOrderId: orderData.orderId,
-          razorpayPaymentId: simulatedPaymentId,
-          razorpaySignature: simulatedSignature,
-          paymentMethod: selectedMethod === 'upi' ? `UPI (${upiId})` : selectedMethod === 'card' ? 'Visa Debit Card' : 'HDFC NetBanking'
+          utrNumber: cleanUtr,
+          upiApp,
+          senderUpi: senderUpi.trim(),
+          notes: `Paid via ${upiApp} to Garg Residency Pvt Ltd (TID: 68283784)`
         })
       });
 
-      const data = await res.json();
-      if (data.success) {
-        onSuccess(data);
-      } else {
-        onFailure(data.error || 'Payment verification failed');
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to submit payment reference');
       }
-    } catch (err: any) {
-      onFailure(err.message || 'Payment processing error');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
 
-  const handleSimulatedFailure = async () => {
-    setIsProcessing(true);
-    try {
-      // Intentionally pass empty or failed signature to test backend rejection & retry flow
-      const res = await fetch('/api/payment/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          registrationId: registrationData.id,
-          razorpayOrderId: orderData.orderId,
-          razorpayPaymentId: '',
-          razorpaySignature: '',
-          paymentMethod: 'Declined'
-        })
+      // Important: Registration status is PENDING, not PAID
+      onSuccess({
+        registrationId: registrationData.id,
+        registrationNumber: registrationData.registrationNumber,
+        status: 'PENDING',
+        utrNumber: cleanUtr
       });
 
-      const data = await res.json();
-      onFailure(data.error || 'Payment was declined by the issuing bank (Test Simulation)');
     } catch (err: any) {
-      onFailure('Payment failed as requested');
+      setFormError(err.message || 'Failed to submit payment details. Please check connection and try again.');
     } finally {
-      setIsProcessing(false);
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/80 backdrop-blur-xs overflow-y-auto animate-fade-in">
+      <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-6">
         
-        {/* Gateway Header */}
-        <div className="bg-gradient-to-r from-[#0f5973] to-[#093d50] p-4 text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-white/10 flex items-center justify-center text-amber-300">
-              <ShieldCheck className="w-5 h-5" />
+        {/* Modal Header */}
+        <div className="bg-[#0f5973] text-white p-4 sm:p-5 flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <QrCode className="w-5 h-5 text-amber-400" />
+              <h2 className="text-base sm:text-lg font-extrabold uppercase tracking-wider">
+                PAY BOOKING TOKEN
+              </h2>
             </div>
-            <div>
-              <h3 className="font-bold text-sm tracking-wide">Razorpay Secure Checkout</h3>
-              <p className="text-[11px] text-teal-100/90 font-mono">
-                Order: {orderData.orderId}
-              </p>
-            </div>
+            <p className="text-xs text-teal-100 mt-0.5">
+              Pangot Luxury Plots & Cottages · Garg Realty Group
+            </p>
           </div>
-          <button 
+          <button
+            type="button"
             onClick={onClose}
-            disabled={isProcessing}
-            className="p-1 hover:bg-white/10 rounded-full transition-colors text-white/80 hover:text-white"
+            className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+            aria-label="Close"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Order Amount Bar */}
-        <div className="bg-slate-50 px-5 py-3 border-b border-slate-200 flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-500 font-medium">{registrationData.projectName}</p>
-            <p className="text-xs text-slate-700">Token Advance Payment</p>
-          </div>
-          <div className="text-right">
-            <span className="text-xs text-slate-400 uppercase font-semibold">Total Payable</span>
-            <p className="text-lg font-extrabold text-[#0f5973]">
-              ₹ {orderData.amount.toLocaleString('en-IN')}
-            </p>
-          </div>
-        </div>
-
-        {/* Payment Methods */}
-        <div className="p-5">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-            Select Payment Method
-          </p>
-
-          <div className="grid grid-cols-3 gap-2 mb-4">
-            <button
-              type="button"
-              onClick={() => setSelectedMethod('upi')}
-              className={`p-2.5 rounded-lg border text-xs font-medium flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
-                selectedMethod === 'upi' 
-                  ? 'border-[#0f5973] bg-teal-50/60 text-[#0f5973] ring-1 ring-[#0f5973]' 
-                  : 'border-slate-200 hover:border-slate-300 text-slate-600'
-              }`}
-            >
-              <Smartphone className="w-4 h-4" />
-              <span>UPI / QR</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setSelectedMethod('card')}
-              className={`p-2.5 rounded-lg border text-xs font-medium flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
-                selectedMethod === 'card' 
-                  ? 'border-[#0f5973] bg-teal-50/60 text-[#0f5973] ring-1 ring-[#0f5973]' 
-                  : 'border-slate-200 hover:border-slate-300 text-slate-600'
-              }`}
-            >
-              <CreditCard className="w-4 h-4" />
-              <span>Cards</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setSelectedMethod('netbanking')}
-              className={`p-2.5 rounded-lg border text-xs font-medium flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
-                selectedMethod === 'netbanking' 
-                  ? 'border-[#0f5973] bg-teal-50/60 text-[#0f5973] ring-1 ring-[#0f5973]' 
-                  : 'border-slate-200 hover:border-slate-300 text-slate-600'
-              }`}
-            >
-              <Building2 className="w-4 h-4" />
-              <span>NetBanking</span>
-            </button>
-          </div>
-
-          {/* Form details based on method */}
-          <div className="bg-slate-50 p-3.5 rounded-lg border border-slate-200 mb-4 text-xs">
-            {selectedMethod === 'upi' && (
-              <div>
-                <label className="block text-slate-600 font-medium mb-1">Enter UPI VPA / ID</label>
-                <input 
-                  type="text" 
-                  value={upiId}
-                  onChange={(e) => setUpiId(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded text-slate-800 font-mono text-xs focus:outline-none focus:border-[#0f5973]"
-                  placeholder="username@okhdfcbank"
-                />
-                <p className="text-[11px] text-slate-400 mt-1">Supports Google Pay, PhonePe, Paytm, BHIM</p>
-              </div>
-            )}
-
-            {selectedMethod === 'card' && (
-              <div className="space-y-2">
-                <div>
-                  <label className="block text-slate-600 font-medium mb-1">Card Number</label>
-                  <input 
-                    type="text" 
-                    readOnly 
-                    value={cardDetails.number}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded text-slate-800 font-mono text-xs"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-slate-600 font-medium mb-1">Expiry</label>
-                    <input 
-                      type="text" 
-                      readOnly 
-                      value={cardDetails.expiry}
-                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded text-slate-800 font-mono text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-600 font-medium mb-1">CVV</label>
-                    <input 
-                      type="text" 
-                      readOnly 
-                      value={cardDetails.cvv}
-                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded text-slate-800 font-mono text-xs"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {selectedMethod === 'netbanking' && (
-              <div>
-                <label className="block text-slate-600 font-medium mb-1">Select Bank</label>
-                <select className="w-full px-3 py-2 bg-white border border-slate-300 rounded text-slate-800 text-xs focus:outline-none focus:border-[#0f5973]">
-                  <option>HDFC Bank</option>
-                  <option>ICICI Bank</option>
-                  <option>State Bank of India</option>
-                  <option>Axis Bank</option>
-                  <option>Kotak Mahindra Bank</option>
-                </select>
-              </div>
-            )}
-          </div>
-
-          {/* Test Sandbox Badge / Live trigger */}
-          <div className="mb-4 text-[11px] text-slate-500 bg-amber-50 border border-amber-200 p-2.5 rounded-lg flex items-start gap-2">
-            <ShieldCheck className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" />
+        {/* Modal Body */}
+        <div className="p-4 sm:p-6 max-h-[82vh] overflow-y-auto space-y-5">
+          
+          {/* Amount & Registration Summary Banner */}
+          <div className="p-3.5 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-between">
             <div>
-              <span className="font-semibold text-amber-900">Sandbox Test Mode Active</span>
-              <p className="text-amber-800 leading-relaxed mt-0.5">
-                Simulated transactions test real server-side HMAC signature verification, Firestore record generation, and CRM sync without live bank debit.
+              <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700">Token Advance Amount</span>
+              <p className="text-xl sm:text-2xl font-black text-[#0f5973] font-mono">
+                ₹ {orderData.amount.toLocaleString('en-IN')}
+              </p>
+              <p className="text-[11px] text-teal-800 font-medium">
+                {registrationData.selectedPlan || 'Pangot Allotment'} {registrationData.numberOfUnits ? `· ${registrationData.numberOfUnits} Unit(s)` : ''}
+              </p>
+            </div>
+            <div className="text-right">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Registration ID</span>
+              <p className="text-xs font-mono font-bold text-slate-800 mt-0.5">
+                {registrationData.registrationNumber}
+              </p>
+              <span className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-semibold rounded mt-1">
+                15-Day Refund Guarantee
+              </span>
+            </div>
+          </div>
+
+          {/* Official HDFC Bank SmartHub VYAPAR QR Code Card */}
+          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center">
+            
+            {/* The exact official QR Image Asset */}
+            <div className="inline-block bg-white p-2 rounded-2xl shadow-sm border border-slate-200">
+              <img 
+                src="/image.png" 
+                alt="Official HDFC Bank SmartHub VYAPAR QR Code - Garg Residency Pvt Ltd"
+                className="w-full max-w-[280px] sm:max-w-[310px] mx-auto rounded-xl object-contain block"
+                onError={(e) => {
+                  // Fallback to alternative path if needed
+                  (e.currentTarget as HTMLImageElement).src = '/hdfc-vyapar-qr.png';
+                }}
+                referrerPolicy="no-referrer"
+              />
+            </div>
+
+            {/* Exactly Specified Labels Below QR Code */}
+            <div className="mt-3.5 pt-3 border-t border-slate-200">
+              <p className="text-base sm:text-lg font-extrabold text-slate-900 tracking-wide">
+                Garg Residency Pvt Ltd
+              </p>
+              <p className="text-xs font-bold text-[#0f5973] uppercase tracking-widest mt-0.5">
+                Scan &amp; Pay
+              </p>
+              <p className="text-[11px] text-slate-500 mt-1 font-mono">
+                TID: 68283784 · HDFC Bank SmartHub VYAPAR
               </p>
             </div>
           </div>
 
-          {/* Action Buttons */}
-          <div className="space-y-2">
-            <button
-              type="button"
-              disabled={isProcessing}
-              onClick={handleSimulatedSuccess}
-              className="w-full py-2.5 px-4 bg-[#0f5973] hover:bg-[#0a4358] text-white font-bold text-sm rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              {isProcessing ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  <span>Verifying Payment...</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="w-4 h-4 text-emerald-300" />
-                  <span>Pay ₹{orderData.amount.toLocaleString('en-IN')} (Success)</span>
-                </>
-              )}
-            </button>
-
-            {/* Simulated Failure Trigger to test Retry flow */}
-            <button
-              type="button"
-              disabled={isProcessing}
-              onClick={handleSimulatedFailure}
-              className="w-full py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-            >
-              <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-              <span>Test Payment Failure & Retry Flow</span>
-            </button>
+          {/* Instructions Box */}
+          <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3.5 text-xs text-amber-900 space-y-1.5">
+            <p className="font-bold flex items-center gap-1.5 text-amber-950">
+              <ShieldCheck className="w-4 h-4 text-amber-600 flex-shrink-0" />
+              <span>How to Complete Token Payment:</span>
+            </p>
+            <ol className="list-decimal pl-4 space-y-1 text-slate-700">
+              <li>Open any UPI App (Google Pay, PhonePe, Paytm, BHIM, Cred, HDFC PayZapp, or your Bank App).</li>
+              <li>Scan the official QR code above and transfer exact amount: <strong>₹{orderData.amount.toLocaleString('en-IN')}</strong>.</li>
+              <li>Copy the <strong>12-digit UTR / UPI Reference Number</strong> from your payment receipt.</li>
+              <li>Enter the UTR below and submit for verification.</li>
+            </ol>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-400">
-            <span>256-bit TLS Encrypted</span>
-            <span>PCI-DSS Level 1 Compliant</span>
-          </div>
+          {/* Payment Verification Submission Form */}
+          <form onSubmit={handleSubmitVerification} className="space-y-4 pt-1">
+            <div className="border-t border-slate-200 pt-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#0f5973] mb-3">
+                Submit Payment Confirmation
+              </h3>
+            </div>
+
+            {formError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span>{formError}</span>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-bold text-slate-800 mb-1">
+                Bank UTR / UPI Reference Number <span className="text-rose-500">*</span>
+              </label>
+              <input 
+                type="text"
+                value={utrNumber}
+                onChange={e => setUtrNumber(e.target.value)}
+                placeholder="e.g. 428591823456 (12-digit number)"
+                maxLength={25}
+                className="w-full px-3.5 py-2.5 text-sm font-mono font-bold rounded-lg border border-slate-300 text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0f5973] bg-white"
+                required
+              />
+              <p className="text-[11px] text-slate-400 mt-1">
+                Found on your UPI transaction details receipt screen as "UPI Ref No" or "UTR".
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  UPI App Used
+                </label>
+                <select
+                  value={upiApp}
+                  onChange={e => setUpiApp(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 text-slate-800 bg-white font-medium focus:outline-none focus:ring-1 focus:ring-[#0f5973]"
+                >
+                  <option value="Google Pay">Google Pay (GPay)</option>
+                  <option value="PhonePe">PhonePe</option>
+                  <option value="Paytm">Paytm</option>
+                  <option value="BHIM UPI">BHIM UPI</option>
+                  <option value="HDFC PayZapp / Banking">HDFC Bank / PayZapp</option>
+                  <option value="Cred">Cred</option>
+                  <option value="Other Bank App">Other Bank UPI App</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Sender UPI ID / Mobile <span className="text-slate-400 font-normal">(Optional)</span>
+                </label>
+                <input 
+                  type="text"
+                  value={senderUpi}
+                  onChange={e => setSenderUpi(e.target.value)}
+                  placeholder="e.g. yourname@okhdfcbank"
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0f5973]"
+                />
+              </div>
+            </div>
+
+            <div className="pt-1">
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input 
+                  type="checkbox"
+                  checked={hasConfirmedTransfer}
+                  onChange={e => setHasConfirmedTransfer(e.target.checked)}
+                  className="mt-0.5 rounded text-[#0f5973] focus:ring-0"
+                />
+                <span className="text-xs text-slate-700 leading-snug">
+                  I confirm that I have scanned the QR code and completed transfer of <strong>₹{orderData.amount.toLocaleString('en-IN')}</strong> to <strong>Garg Residency Pvt Ltd (TID: 68283784)</strong>. <span className="text-rose-500">*</span>
+                </span>
+              </label>
+            </div>
+
+            {/* Note on Verification */}
+            <div className="p-3 bg-slate-100 rounded-lg text-[11px] text-slate-600 flex items-start gap-2">
+              <Clock className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />
+              <span>
+                <strong>Verification Notice:</strong> Submitting will set your booking status to <strong>PENDING</strong> verification. The booking is NOT marked as paid immediately; our accounts desk verifies the UTR against our HDFC Bank SmartHub terminal before issuing the final confirmed allotment certificate.
+              </span>
+            </div>
+
+            {/* Submit Action */}
+            <div className="pt-2 flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isSubmitting}
+                className="w-full sm:w-auto px-4 py-2.5 border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full sm:flex-1 py-3 px-6 bg-[#b87e2b] hover:bg-[#a66f24] active:scale-[0.99] text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isSubmitting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>SUBMITTING UTR FOR VERIFICATION...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>I HAVE PAID — SUBMIT FOR VERIFICATION</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+          </form>
+
         </div>
+
       </div>
     </div>
   );
