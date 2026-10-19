@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { Project, Registration, PaymentRecord, WebhookEvent, AuditLog, AdminUser } from '../types.js';
 import { UNIT_OPTIONS } from '../bookingOptions.js';
+import { APP_ROOT } from './loadEnv.js';
 
 interface DatabaseSchema {
   projects: Record<string, Project>;
@@ -16,7 +17,8 @@ interface DatabaseSchema {
   };
 }
 
-const DATA_DIR = path.resolve(process.cwd(), process.env.DATA_DIR || 'data');
+// DATA_DIR may be absolute (recommended in production, outside the deployed code folder) or relative to the project root
+const DATA_DIR = path.resolve(APP_ROOT, process.env.DATA_DIR || 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
 function configuredAdmin(): DatabaseSchema['admin_users'] {

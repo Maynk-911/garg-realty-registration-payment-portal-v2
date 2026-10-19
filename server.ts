@@ -1,5 +1,5 @@
 // Load .env before any service module reads process.env
-import './src/server/loadEnv.js';
+import { APP_ROOT } from './src/server/loadEnv.js';
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import crypto from 'crypto';
@@ -1227,7 +1227,7 @@ app.get('/api/admin/google-sheets/preview-row/:id', authenticateAdmin, (req: Req
 // -------------------------------------------------------------
 async function setupServer() {
   // Always serve public assets (like /logo-mark.png, /payment-qr.jpeg)
-  const publicPath = path.resolve(process.cwd(), 'public');
+  const publicPath = path.resolve(APP_ROOT, 'public');
   app.use(express.static(publicPath));
 
   if (!isProd) {
@@ -1238,7 +1238,7 @@ async function setupServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.resolve(process.cwd(), 'dist');
+    const distPath = path.resolve(APP_ROOT, 'dist');
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));

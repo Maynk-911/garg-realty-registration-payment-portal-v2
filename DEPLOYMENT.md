@@ -1,47 +1,52 @@
-# Deploying to Hostinger (Node.js hosting)
+# Deploying to Hostinger (Node.js Web App)
 
-The portal is a single Node.js app: an Express server (`server.ts`) that serves the built React site from `dist/`
-and stores bookings in a local JSON database (`data/db.json`). No external database is required.
+The portal is one Node.js app: an Express server that serves the built React site and stores bookings in a
+local JSON database. `npm run build` produces two things:
 
-## 1. Upload the code
+- `dist/` — the website (Vite)
+- `build/server.js` — the compiled server (esbuild); this is the file Hostinger runs
 
-Upload the project **without** these (they are created on the server or must stay private):
+No external database is required.
 
-- `node_modules/` — installed by Hostinger
-- `dist/` — built on the server
-- `.env` — create it on the server (step 2); never upload or commit it
-- `data/db.json` — created automatically on first start; never overwrite it on a redeploy (it holds live bookings)
+## Hostinger settings (hPanel → Websites → Add website → Node.js Web App → import from GitHub)
 
-If you deploy from Git, `.gitignore` already excludes all of the above.
-
-## 2. Environment variables
-
-Create `.env` in the project root on the server (or set the same keys in Hostinger's environment panel),
-starting from `.env.example`. Required:
-
-| Key | Value |
+| Setting | Value |
 |---|---|
-| `NODE_ENV` | `production` |
-| `ADMIN_EMAIL` | the admin login email |
-| `ADMIN_PASSWORD` | at least 16 characters |
-| `ADMIN_JWT_SECRET` | at least 32 random characters (e.g. `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`) |
-| `APP_URL` | your real public URL |
+| Repository / branch | `garg-realty-registration-payment-portal-v2` / `main` |
+| Framework | Express.js (or "Other" if Express is not listed) |
+| Node.js version | 22.x (20.x also works; minimum 20.19) |
+| Root directory | `./` (repository root) |
+| Package manager | npm |
+| Build command | `npm run build` |
+| Entry file | `build/server.js` (start command, if asked: `npm start`) |
 
-`PORT` is provided by Hostinger. Google Sheets, Razorpay and CRM keys are optional; leave them as placeholders if unused.
+## Environment variables (set in Hostinger's environment variables panel — never commit `.env`)
 
-## 3. Build and start
+| Key | Required | Value |
+|---|---|---|
+| `ADMIN_EMAIL` | yes | admin login email |
+| `ADMIN_PASSWORD` | yes | at least 16 characters |
+| `ADMIN_JWT_SECRET` | yes | at least 32 random characters, e.g. `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` |
+| `DATA_DIR` | strongly recommended | absolute folder **outside** the deployed code, e.g. `/home/<your-hostinger-user>/garg-realty-data` |
+| `APP_URL` | recommended | your public URL, e.g. `https://apply.yourdomain.com` |
+| `NODE_ENV` | optional | `production` (the compiled server already defaults to production) |
+| `PORT` | no | provided by Hostinger |
 
-```
-npm install
-npm run build
-npm start
-```
+Google Sheets, Razorpay, CRM and email keys are optional; leave them unset if unused.
 
-Set the application startup command in Hostinger to `npm start` (entry: `server.ts`, run through `tsx`).
+## Booking data (important)
 
-## 4. Check after deploying
+All bookings live in `<DATA_DIR>/db.json` (default: `data/db.json` inside the app folder). Redeploying replaces the
+app folder's code, so point `DATA_DIR` at a folder outside it to make sure bookings survive every redeploy.
+The folder and database are created automatically on first start, with the admin account taken from the
+environment variables. Back up this folder regularly.
 
-- `https://<your-domain>/` shows the home page.
-- `https://<your-domain>/admin` shows the login form; log in with `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
-- The server log shows `Server listening on port … (Env: production)`.
-- Make sure the `data/` folder is writable and is kept between deploys (back it up regularly — it is the booking database).
+## After deploying
+
+- `https://<your-domain>/` shows the home page; `/admin` shows the admin login.
+- The runtime log shows `Server listening on port … (Env: production)`.
+- If the log warns "Admin login disabled" or "Admin account not provisioned", check the three `ADMIN_*` variables.
+
+## Local development
+
+`npm run dev` runs the TypeScript server directly with the Vite dev server (no build needed).
