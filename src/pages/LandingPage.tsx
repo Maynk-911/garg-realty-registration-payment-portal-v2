@@ -1,5 +1,6 @@
 import React from 'react';
 import { Project } from '../types.js';
+import { UNIT_OPTIONS } from '../bookingOptions.js';
 import { 
   ShieldCheck, 
   ArrowRight, 
@@ -21,7 +22,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onStartRegistration
 }) => {
   const pangotProject = projects.find(p => p.id === 'proj_pangot') || projects[0];
-  const tokenAmount = pangotProject ? pangotProject.token_amount : 50000;
+  const tokenAmount = pangotProject ? pangotProject.token_amount : 51000;
 
   return (
     <div className="min-h-[calc(100vh-80px)] bg-slate-50 flex flex-col justify-between">
@@ -52,13 +53,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           {/* The Main CTA Button Requested */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <button
-              onClick={onStartRegistration}
+            <a
+              href="/register"
               className="w-full sm:w-auto px-10 py-4 bg-[#b87e2b] hover:bg-[#a66f24] active:scale-[0.99] text-white font-bold text-sm sm:text-base uppercase tracking-wider rounded-xl shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-3 cursor-pointer"
             >
               <span>REGISTER / BOOK UNIT</span>
               <ArrowRight className="w-5 h-5" />
-            </button>
+            </a>
           </div>
 
           <p className="text-xs text-teal-200/80 mt-4">
@@ -97,10 +98,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="bg-white/5 border border-white/10 p-3.5 rounded-xl backdrop-blur-xs">
               <div className="flex items-center gap-2 text-amber-300 mb-1">
                 <Lock className="w-4 h-4" />
-                <span className="text-[11px] font-bold uppercase tracking-wider">Security</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider">Payment</span>
               </div>
-              <p className="text-xs font-semibold text-white">Razorpay Encrypted</p>
-              <p className="text-[11px] text-teal-200/80">Server Verified</p>
+              <p className="text-xs font-semibold text-white">UPI QR Payment</p>
+              <p className="text-[11px] text-teal-200/80">Verified by Accounts Team</p>
             </div>
           </div>
 
@@ -128,20 +129,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8 text-xs text-slate-700">
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
               <p className="text-slate-400 font-semibold mb-1">Unit Types</p>
-              <p className="font-bold text-slate-900 text-sm">200, 350 & 500 Sq. Yds</p>
-              <p className="text-slate-500 mt-1">Cottage and villa plots with clear freehold title and registry.</p>
+              <p className="font-bold text-slate-900 text-sm">Co-Own &amp; Full Own</p>
+              <p className="text-slate-500 mt-1">{UNIT_OPTIONS.join(' · ')}</p>
             </div>
 
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
               <p className="text-slate-400 font-semibold mb-1">Token Advance</p>
-              <p className="font-bold text-[#0f5973] text-sm">₹50,000 / Unit</p>
+                <p className="font-bold text-[#0f5973] text-sm">₹{tokenAmount.toLocaleString('en-IN')} / Unit</p>
               <p className="text-slate-500 mt-1">Directly credited toward overall purchase price schedule.</p>
             </div>
 
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-              <p className="text-slate-400 font-semibold mb-1">Immediate Allotment</p>
+              <p className="text-slate-400 font-semibold mb-1">Booking Acknowledgement</p>
               <p className="font-bold text-slate-900 text-sm">Digital GRG Receipt</p>
-              <p className="text-slate-500 mt-1">Instant Booking & Plot Details Form (PDF) with verification number.</p>
+              <p className="text-slate-500 mt-1">Printable booking form with your Booking ID, confirmed once payment is verified.</p>
             </div>
           </div>
 
@@ -152,13 +153,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <span>Takes less than 3 minutes to complete online</span>
             </div>
 
-            <button
-              onClick={onStartRegistration}
+            <a
+              href="/register"
               className="w-full sm:w-auto px-8 py-3 bg-[#0f5973] hover:bg-[#0a4358] text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer"
             >
               <span>REGISTER / BOOK UNIT NOW</span>
               <ArrowRight className="w-4 h-4" />
-            </button>
+            </a>
           </div>
 
         </div>

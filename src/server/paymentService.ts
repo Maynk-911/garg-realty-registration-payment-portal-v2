@@ -41,6 +41,14 @@ export class PaymentService {
     );
   }
 
+  /**
+   * Simulated (unverified) gateway confirmations are OFF unless explicitly enabled for local testing.
+   * Without this, a booking can only become PAID through a real gateway signature or accounts-desk verification.
+   */
+  private get allowSimulatedPayments(): boolean {
+    return process.env.ALLOW_SIMULATED_PAYMENTS === 'true' && process.env.NODE_ENV !== 'production';
+  }
+
   public getPublicConfig() {
     return {
       keyId: this.keyId || 'rzp_test_placeholder',
@@ -176,9 +184,12 @@ export class PaymentService {
         .digest('hex');
 
       isValid = (generatedSignature === razorpaySignature);
-    } else {
-      // In test/sandbox mode, accept simulated signature verification
+    } else if (this.allowSimulatedPayments) {
+      // Local test/sandbox mode only: accept simulated signature verification
       isValid = Boolean(razorpaySignature && razorpayPaymentId);
+    } else {
+      // No gateway is configured, so nothing can be verified here. Leave the booking untouched.
+      return { success: false, message: 'Online gateway verification is not available. Payments are verified by the accounts team.' };
     }
 
     if (!isValid) {
@@ -238,7 +249,8 @@ export class PaymentService {
    */
   public async handleWebhook(
     rawBody: string | Buffer,
-    signature: string
+    signature: string,
+    trustedAdminSimulation: boolean = false
   ): Promise<{ status: number; message: string; eventId?: string }> {
     const payloadStr = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf-8');
     let parsed: any;
@@ -268,8 +280,8 @@ export class PaymentService {
 
       signatureVerified = (expectedSignature === signature);
     } else {
-      // In development/test mode without custom webhook secret
-      signatureVerified = Boolean(signature);
+      // No real webhook secret: only an authenticated admin simulation or explicit local test mode is accepted
+      signatureVerified = Boolean(signature) && (trustedAdminSimulation || this.allowSimulatedPayments);
     }
 
     const webhookEvent: WebhookEvent = {
@@ -283,7 +295,7 @@ export class PaymentService {
       created_at: new Date().toISOString()
     };
 
-    if (!signatureVerified && this.isLiveCredentialsConfigured) {
+    if (!signatureVerified) {
       webhookEvent.error = 'Invalid signature';
       db.saveWebhookEvent(webhookEvent);
       console.warn(`[Webhook Security] Rejected webhook ${eventId}: Signature mismatch`);
@@ -378,7 +390,7 @@ export class PaymentService {
   /**
    * Helper to simulate a test webhook for testing idempotency and verification
    */
-  public async simulateWebhookEvent(eventType: 'payment.captured' | 'payment.failed', orderId: string) {
+  public async simulateWebhookEvent(eventType: 'payment.captured' | 'payment.failed', orderId: string, trustedAdminSimulation: boolean = false) {
     const payment = db.getPaymentByOrderId(orderId);
     if (!payment) {
       throw new Error(`Order ${orderId} not found`);
@@ -408,7 +420,7 @@ export class PaymentService {
     const raw = JSON.stringify(payload);
     const signature = crypto.createHmac('sha256', this.webhookSecret).update(raw).digest('hex');
 
-    return this.handleWebhook(raw, signature);
+    return this.handleWebhook(raw, signature, trustedAdminSimulation);
   }
 }
 

@@ -6,3 +6,20 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Google credentials must never be committed
+*service-account*.json
+*service_account*.json
+google-credentials*.json
+credentials/
+*.pem
+
+# Live booking database (contains customer data) - never commit or overwrite on redeploy
+data/*.json
+data/*.json.tmp
+
+# Local backups and exports
+backups/
+*.bak
+*backup*.json
+*.sqlite

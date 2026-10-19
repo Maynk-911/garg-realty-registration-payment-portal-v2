@@ -108,8 +108,11 @@ export interface Registration {
   upi_app?: string;
   sender_upi?: string;
   payment_submitted_at?: string;
+  sheet_synced_at?: string;
   payment_verified_at?: string;
   payment_verified_by?: string;
+  payment_rejected_at?: string;
+  payment_rejected_by?: string;
   // Marketing / Tracking
   source?: string;
   campaign?: string;

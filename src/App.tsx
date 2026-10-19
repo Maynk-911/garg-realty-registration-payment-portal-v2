@@ -20,6 +20,8 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('proj_pangot');
   const [activeRegistrationId, setActiveRegistrationId] = useState<string>('');
+  // Bumped after a payment submission so the status page reloads even when it is already open
+  const [statusRefreshKey, setStatusRefreshKey] = useState(0);
 
   // Payment Modal State
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -39,8 +41,9 @@ export default function App() {
       .catch(err => console.error('Failed to load projects:', err));
   }, []);
 
-  // Handle URL Path matching on initial load (e.g. /payment-status/reg_123 or /admin)
+  // Keep the current page in sync with direct links and browser Back/Forward.
   useEffect(() => {
+    const syncLocation = () => {
     const path = window.location.pathname;
     if (path.startsWith('/payment-status/')) {
       const regId = path.split('/payment-status/')[1];
@@ -52,13 +55,22 @@ export default function App() {
       setCurrentView('admin');
     } else if (path === '/track') {
       setCurrentView('track');
+    } else if (path === '/register') {
+      setCurrentView('form');
     } else if (path === '/privacy-policy') {
       setCurrentView('policy_privacy');
     } else if (path === '/terms-and-conditions') {
       setCurrentView('policy_terms');
     } else if (path === '/refund-policy') {
       setCurrentView('policy_refund');
+    } else {
+      setCurrentView('landing');
     }
+    setIsPaymentModalOpen(false);
+    };
+    syncLocation();
+    window.addEventListener('popstate', syncLocation);
+    return () => window.removeEventListener('popstate', syncLocation);
   }, []);
 
   // Handler to initiate payment modal from form or retry
@@ -71,17 +83,26 @@ export default function App() {
 
   const handlePaymentSuccess = (_paymentResult: any) => {
     setIsPaymentModalOpen(false);
-    setCurrentView('status');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setStatusRefreshKey(k => k + 1);
+    navigateTo('status');
   };
 
   const handlePaymentFailure = (_errorMessage: string) => {
     setIsPaymentModalOpen(false);
-    setCurrentView('status');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    navigateTo('status');
   };
 
   const navigateTo = (view: string) => {
+    const paths: Record<string, string> = {
+      landing: '/', form: '/register', track: '/track', admin: '/admin',
+      policy_terms: '/terms-and-conditions', policy_privacy: '/privacy-policy',
+      policy_refund: '/refund-policy', status: `/payment-status/${activeRegistrationId}`
+    };
+    const path = paths[view];
+    if (!path) return;
+    if (window.location.pathname !== path) {
+      window.history.pushState(null, '', path + window.location.search);
+    }
     setCurrentView(view);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -115,6 +136,7 @@ export default function App() {
 
         {currentView === 'status' && (
           <PaymentStatusPage
+            key={`${activeRegistrationId}-${statusRefreshKey}`}
             registrationId={activeRegistrationId}
             onRetryPayment={handleInitiatePayment}
             onNavigateHome={() => navigateTo('landing')}

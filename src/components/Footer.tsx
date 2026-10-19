@@ -12,7 +12,11 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
         
         {/* Brand Logo */}
         <div 
-          onClick={() => onNavigate('landing')}
+          onClick={(event) => {
+            if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            onNavigate('landing');
+          }}
           className="cursor-pointer"
         >
           <BrandLogo size="sm" />

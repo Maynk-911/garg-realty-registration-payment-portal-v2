@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { Project, Registration, PaymentRecord, WebhookEvent, AuditLog, AdminUser } from '../types.js';
+import { UNIT_OPTIONS } from '../bookingOptions.js';
 
 interface DatabaseSchema {
   projects: Record<string, Project>;
@@ -15,8 +16,19 @@ interface DatabaseSchema {
   };
 }
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+const DATA_DIR = path.resolve(process.cwd(), process.env.DATA_DIR || 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
+
+function configuredAdmin(): DatabaseSchema['admin_users'] {
+  const email = process.env.ADMIN_EMAIL?.trim();
+  const password = process.env.ADMIN_PASSWORD;
+  if (!email || !password || password.length < 16 || password === 'AdminPassword@2026') return {};
+  const salt = crypto.randomBytes(16).toString('hex');
+  return { admin_1: {
+    id: 'admin_1', email, name: 'Principal Executive', role: 'SUPER_ADMIN',
+    passwordHash: `scrypt:${salt}:${crypto.scryptSync(password, salt, 64).toString('hex')}`
+  } };
+}
 
 const INITIAL_PROJECTS: Project[] = [
   {
@@ -25,18 +37,18 @@ const INITIAL_PROJECTS: Project[] = [
     tagline: 'Pangot Booking - Booking & Plot Details Form',
     description: 'Scenic high-altitude hill plots in Pangot (Nainital region) with pristine Himalayan views, high ROI rental yield, and legal clear title.',
     location: 'Pangot, Nainital, Uttarakhand',
-    token_amount: 50000,
+    token_amount: 51000,
     total_price: 2500000,
     currency: 'INR',
     tax_percentage: 0, // Advance token booking has no GST surcharge or 0% tax configurable
     roi_percentage: 14.5,
-    unit_types: ['₹7 L - Co-Own', '₹18 L - Co-Own', 'Studio - Full Own', 'Villa - Full Own'],
+    unit_types: [...UNIT_OPTIONS],
     sample_units: [],
     ownership_plans: [
-      { id: 'plan_7l_co_own', name: '₹7 L - Co-Own', label: '₹7 L - Co-Own', type: 'CO_OWN', token_amount: 50000, total_price: 700000 },
-      { id: 'plan_18l_co_own', name: '₹18 L - Co-Own', label: '₹18 L - Co-Own', type: 'CO_OWN', token_amount: 50000, total_price: 1800000 },
-      { id: 'plan_studio_full_own', name: 'Studio - Full Own', label: 'Studio - Full Own', type: 'FULL_OWN', token_amount: 50000, total_price: 2500000 },
-      { id: 'plan_villa_full_own', name: 'Villa - Full Own', label: 'Villa - Full Own', type: 'FULL_OWN', token_amount: 50000, total_price: 5000000 }
+      { id: 'plan_7l_co_own', name: UNIT_OPTIONS[0], label: UNIT_OPTIONS[0], type: 'CO_OWN', token_amount: 51000, total_price: 700000 },
+      { id: 'plan_18l_co_own', name: UNIT_OPTIONS[1], label: UNIT_OPTIONS[1], type: 'CO_OWN', token_amount: 51000, total_price: 1800000 },
+      { id: 'plan_studio_full_own', name: UNIT_OPTIONS[2], label: UNIT_OPTIONS[2], type: 'FULL_OWN', token_amount: 51000, total_price: 2500000 },
+      { id: 'plan_villa_full_own', name: UNIT_OPTIONS[3], label: UNIT_OPTIONS[3], type: 'FULL_OWN', token_amount: 51000, total_price: 5000000 }
     ],
     active: true,
     features: [
@@ -121,6 +133,15 @@ class Database {
       if (fs.existsSync(DB_FILE)) {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
         const parsed = JSON.parse(raw);
+        parsed.admin_users = { ...parsed.admin_users, ...configuredAdmin() };
+        // Keep the stored Pangot project on the current 4 unit options (replaces older plot-size options)
+        const pangot = parsed.projects?.proj_pangot;
+        if (pangot) {
+          pangot.token_amount = INITIAL_PROJECTS[0].token_amount;
+          pangot.unit_types = INITIAL_PROJECTS[0].unit_types;
+          pangot.sample_units = INITIAL_PROJECTS[0].sample_units;
+          pangot.ownership_plans = INITIAL_PROJECTS[0].ownership_plans;
+        }
         return parsed;
       }
     } catch (err) {
@@ -133,15 +154,7 @@ class Database {
       payments: {},
       webhook_events: {},
       audit_logs: {},
-      admin_users: {
-        'admin_1': {
-          id: 'admin_1',
-          email: 'admin@gargrealty.com',
-          name: 'Principal Executive',
-          role: 'SUPER_ADMIN',
-          passwordHash: crypto.createHash('sha256').update('AdminPassword@2026').digest('hex')
-        }
-      },
+      admin_users: configuredAdmin(),
       counters: {
         registration_seq: 100
       }
@@ -178,13 +191,25 @@ class Database {
     }, 50);
   }
 
+  /** Write pending changes to disk now; throws if the write fails. */
+  public flush() {
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+      this.saveTimeout = null;
+    }
+    const tmp = `${DB_FILE}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2), 'utf-8');
+    fs.renameSync(tmp, DB_FILE);
+  }
+
   // --- Registration Operations ---
   public generateRegistrationNumber(): string {
     this.data.counters.registration_seq += 1;
-    const seq = String(this.data.counters.registration_seq).padStart(6, '0');
-    const year = new Date().getFullYear();
+    // Sequence never repeats, so the Booking ID is unique. Date part is the booking date in India time.
+    const seq = String(this.data.counters.registration_seq).padStart(4, '0');
+    const date = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' }).replace(/-/g, '');
     this.save();
-    return `GRG-PNG-${year}-${seq}`;
+    return `GRG-PNG-${date}-${seq}`;
   }
 
   public getRegistration(id: string): Registration | null {
@@ -236,7 +261,9 @@ class Database {
     }
 
     if (filter?.paymentStatus && filter.paymentStatus !== 'all') {
-      list = list.filter(r => r.payment_status === filter.paymentStatus);
+      // Comma-separated list allowed, e.g. "PENDING,INITIATED" for the Pending / Initiated KPI
+      const statuses = filter.paymentStatus.split(',');
+      list = list.filter(r => statuses.includes(r.payment_status));
     }
 
     if (filter?.registrationStatus && filter.registrationStatus !== 'all') {

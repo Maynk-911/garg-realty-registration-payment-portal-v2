@@ -127,6 +127,38 @@
 
 ---
 
+## 3a. Booking Flow, Payment QR & Google Sheets
+
+**Flow:** Applicant Details → Address → Booking Details (unit option, Number of Units, calculated Booking Token) → Review → **Payment** → Confirmation.
+
+- **Unit options** (single source: `src/bookingOptions.ts`): `7 L – Co-Own`, `18 L – Co-Own`, `Studio – Full Own`, `Villa – Full Own`.
+- **Booking token:** ₹51,000 × Number of Units, recalculated on the server.
+- **Logo:** `public/logo-mark.png` — an exact copy of `logo-mark.png` in the project root.
+- **Payment QR:** `public/payment-qr.jpeg` — an exact, unmodified copy of `QR CODE.jpeg` in the project root. It is the only payment method shown.
+- **Payment status:** submitting a UTR records the booking as **Payment Submitted**. It becomes **Payment Verified** only when an admin verifies the UTR in the Admin Dashboard.
+
+### Google Sheets (server-side only)
+
+When the customer presses **Payment Submitted**, `POST /api/payment/submit-qr-utr` validates the request, appends one row to the existing private spreadsheet `1uw77HSMk5smqdBipFmDlj3BikxqeB4T6zXZh_7Lex8I` (tab `Sheet1`, configurable with `GOOGLE_SHEET_NAME`) through the Google Sheets API v4, and only then returns success. The app never creates a spreadsheet, never changes sharing, and the browser never receives Google credentials.
+
+- **Columns:** Timestamp, Booking ID, Customer Name, Phone Number, Email, Project, Unit Type, Number of Units, Booking Token / Booking Amount, Payment Amount, UTR / Transaction ID, Payment Status. The header row is written only if row 1 is empty.
+- **Booking ID:** `GRG-PNG-YYYYMMDD-XXXX`, unique per booking. **Timestamp:** generated on the server, `YYYY-MM-DD HH:mm:ss` India time.
+- **Duplicates:** the Booking ID is the idempotency key. A repeated, double-clicked or retried submission never appends a second row.
+- **Failure:** if the row cannot be written (Google unavailable, credentials missing, sheet not shared), the customer sees "Your submission could not be recorded right now. Please try again." and no confirmation; the cause is logged on the server only.
+- **Status:** rows are written as `Payment Submitted`. Only an admin verifying the UTR changes that booking's own row to `Payment Verified`.
+
+Setup:
+1. Create a Google Cloud service account, enable the Google Sheets API, and download its JSON key.
+2. Share the spreadsheet with the service account's `client_email` as **Editor** (keep the sheet private otherwise).
+3. Create `.env` from `.env.example` and set `GOOGLE_SERVICE_ACCOUNT_KEY_FILE` to the path of the JSON key (keep the key file outside the project folder). Alternatively set `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`. Never commit `.env` or the JSON key.
+4. Run `npm run sheets:check`. It reports exactly which step is failing (credentials, Google sign-in, sharing, tab name). `npm run sheets:check -- --test-row` also appends one marked test row.
+
+The server prints `[Google Sheets] READY` or `NOT READY` with the reason every time it starts.
+
+Local testing without Google credentials: `npm run dev:mock-sheets` starts the server with a local stand-in for Google's API (`tests/mockGoogleSheets.mjs`, never contacts Google), and `npm run test:flow` runs the end-to-end suite against it.
+
+---
+
 ## 4. API Endpoints
 
 | Method | Endpoint | Description |
@@ -194,9 +226,10 @@ The app runs on port 3000 behind Nginx/Caddy/Cloudflare SSL reverse proxy.
 
 ---
 
-## 6. Admin Credentials (Default Master Access)
+## 6. Admin Payment Verification Setup
 
-- **URL**: Navigate to `/admin` or click "Admin" in header
-- **Email**: `admin@gargrealty.com`
-- **Password**: `AdminPassword@2026`
-- **Role**: `SUPER_ADMIN`
+- Set `ADMIN_EMAIL`, a unique `ADMIN_PASSWORD` (at least 16 characters), and a random `ADMIN_JWT_SECRET` (at least 32 characters) in `.env`, then restart the server. The old default credentials are disabled.
+- Generate a signing secret with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Keep it private. Use HTTPS when deployed.
+- Startup provisions or updates the primary admin account with a salted scrypt password hash in the existing JSON database (`DATA_DIR`, default `data`). Existing bookings and amounts are preserved.
+- Visit `/admin`, sign in, open **Registrations**, and click **View** on a booking. **Verify Payment** and **Reject Payment** require a pending payment with a submitted UTR. Verification records the admin and timestamp; only then is the final receipt available on Track Booking.
+- Missing/unsafe authentication configuration disables admin access. Login attempts are limited to 10 per IP per 15 minutes per server process; sessions expire after 24 hours. Rotate the signing secret to invalidate all sessions.

@@ -24,6 +24,7 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { Registration, PaymentRecord, AuditLog } from '../types.js';
+import { getPaymentStatusLabel } from '../bookingOptions.js';
 import { googleSignIn, initAuth, logoutGoogle, getAccessToken } from '../lib/googleAuth.js';
 
 interface AdminDashboardProps {
@@ -32,15 +33,20 @@ interface AdminDashboardProps {
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }) => {
   // Authentication State
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('garg_admin_token'));
-  const [adminUser, setAdminUser] = useState<any>(() => {
-    const saved = localStorage.getItem('garg_admin_user');
-    return saved ? JSON.parse(saved) : null;
+  // The session lives in sessionStorage (ends with the browser session) and is never trusted until the
+  // server confirms it; a stored token alone does not open the dashboard.
+  const [token, setToken] = useState<string | null>(() => {
+    localStorage.removeItem('garg_admin_token');
+    localStorage.removeItem('garg_admin_user');
+    return sessionStorage.getItem('garg_admin_token');
   });
+  const [sessionVerified, setSessionVerified] = useState(false);
+  const [adminUser, setAdminUser] = useState<any>(null);
 
   // Login form state
-  const [email, setEmail] = useState('admin@gargrealty.com');
-  const [password, setPassword] = useState('AdminPassword@2026');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [reviewBusy, setReviewBusy] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
 
@@ -68,7 +74,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('garg_admin_token')}`
+            Authorization: `Bearer ${sessionStorage.getItem('garg_admin_token')}`
           },
           body: JSON.stringify({ accessToken: token, expiresIn: 3600 })
         }).then(() => fetchSheetsStatus()).catch(console.error);
@@ -85,10 +91,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
       const res = await fetch('/api/admin/google-sheets/status', {
         headers: { Authorization: `Bearer ${token}` }
       });
+      if (res.status === 401 || res.status === 403) return handleLogout();
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Unable to load Google Sheets status');
       setSheetsStatus(data);
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      setSyncFeedback(`Status check failed: ${e.message}`);
     } finally {
       setSheetsLoading(false);
     }
@@ -144,7 +152,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
     }
   };
 
-  const handleVerifyPendingUtr = async (regId: string) => {
+  const handleVerifyPendingUtr = async (regId: string, verified = true) => {
+    if (reviewBusy) return;
+    if (!window.confirm(verified
+      ? 'Confirm the amount has been received in the bank/merchant account for this UTR. Verify payment and unlock the receipt?'
+      : 'Reject this payment? The booking will be marked Payment Failed and no receipt will be issued.')) return;
+    setReviewBusy(true);
     try {
       const res = await fetch('/api/admin/verify-payment', {
         method: 'POST',
@@ -152,18 +165,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ registrationId: regId, verified: true })
+        body: JSON.stringify({ registrationId: regId, verified })
       });
       const data = await res.json();
+      if (res.status === 401 || res.status === 403) handleLogout();
+      if (!res.ok) throw new Error(data.error || 'Unable to review payment');
       if (data.success) {
-        setSelectedReg(data.registration);
+        setSelectedReg((prev: any) => (prev?.id === regId ? data.registration : prev));
         fetchRegistrations(pagination.page);
         fetchOverview();
         fetchSheetsStatus();
-        alert('Payment verified and confirmed as PAID! Record has been synchronized to "Payment Domain".');
+        alert(verified ? 'Payment verified. The final receipt is now available.' : 'Payment rejected. No final receipt is available.');
       }
-    } catch (e) {
-      alert('Failed to verify payment');
+    } catch (e: any) {
+      alert(e.message || 'Failed to review payment');
+    } finally {
+      setReviewBusy(false);
     }
   };
 
@@ -177,6 +194,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
   const [selectedReg, setSelectedReg] = useState<Registration | null>(null);
   const [selectedPayments, setSelectedPayments] = useState<PaymentRecord[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [integrations, setIntegrations] = useState<any>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportFeedback, setExportFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+  const [recordUtr, setRecordUtr] = useState('');
+  const [recordEvidence, setRecordEvidence] = useState('');
+  const [recordBusy, setRecordBusy] = useState(false);
+
+  // Record a UTR read from the customer's own payment receipt (does not verify the payment)
+  const handleRecordUtr = async (regId: string) => {
+    if (recordBusy) return;
+    setRecordBusy(true);
+    try {
+      const res = await fetch(`/api/admin/registration/${regId}/record-utr`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ utrNumber: recordUtr.trim(), evidence: recordEvidence.trim() })
+      });
+      if (res.status === 401 || res.status === 403) return handleLogout();
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Unable to record UTR');
+      setSelectedReg(data.registration);
+      setRecordUtr('');
+      setRecordEvidence('');
+      fetchRegistrations(pagination.page);
+      fetchOverview();
+      alert('UTR recorded. Check it against the bank statement, then use Verify Payment or Reject Payment.');
+    } catch (e: any) {
+      alert(e.message || 'Unable to record UTR');
+    } finally {
+      setRecordBusy(false);
+    }
+  };
 
   // Webhook Simulator State
   const [webhookSimOrder, setWebhookSimOrder] = useState('');
@@ -204,8 +254,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
 
       setToken(data.token);
       setAdminUser(data.user);
-      localStorage.setItem('garg_admin_token', data.token);
-      localStorage.setItem('garg_admin_user', JSON.stringify(data.user));
+      setSessionVerified(true);
+      sessionStorage.setItem('garg_admin_token', data.token);
     } catch (err: any) {
       setLoginError(err.message || 'Login failed');
     } finally {
@@ -214,11 +264,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
   };
 
   const handleLogout = () => {
+    if (token) {
+      fetch('/api/admin/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+    }
     setToken(null);
     setAdminUser(null);
-    localStorage.removeItem('garg_admin_token');
-    localStorage.removeItem('garg_admin_user');
+    setSessionVerified(false);
+    sessionStorage.removeItem('garg_admin_token');
   };
+
+  // A token from an earlier visit in this tab must be confirmed by the server before the dashboard shows
+  useEffect(() => {
+    if (!token || sessionVerified) return;
+    let cancelled = false;
+    fetch('/api/admin/session', { headers: { Authorization: `Bearer ${token}` } })
+      .then(async res => {
+        if (cancelled) return;
+        if (!res.ok) throw new Error('Session no longer valid');
+        const data = await res.json();
+        setAdminUser(data.user);
+        setSessionVerified(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setToken(null);
+        sessionStorage.removeItem('garg_admin_token');
+      });
+    return () => { cancelled = true; };
+  }, [token, sessionVerified]);
 
   // Fetch Dashboard Overview Metrics
   const fetchOverview = async () => {
@@ -228,49 +301,63 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
       const res = await fetch('/api/admin/overview', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.status === 401) {
+      if ([401, 403, 503].includes(res.status)) {
         handleLogout();
         return;
       }
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Unable to load dashboard overview');
       setMetrics(data.metrics);
+      setIntegrations(data.integrations);
       if (data.recentAudit) setAuditLogs(data.recentAudit);
-    } catch (err) {
-      console.error('Failed fetching admin overview:', err);
+      setLoadError(null);
+    } catch (err: any) {
+      setLoadError(`Dashboard overview failed to load: ${err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
   // Fetch Registrations Table
-  const fetchRegistrations = async (page: number = 1) => {
+  // `override` lets a caller apply new filters in the same click, before React state updates land
+  const fetchRegistrations = async (page: number = 1, override?: { search?: string; paymentStatus?: string }) => {
     if (!token) return;
     try {
       setLoading(true);
       const params = new URLSearchParams({
         page: String(page),
         limit: '15',
-        search: searchQuery,
+        search: override?.search ?? searchQuery,
         projectId: filterProject,
-        paymentStatus: filterPaymentStatus,
+        paymentStatus: override?.paymentStatus ?? filterPaymentStatus,
         registrationStatus: filterRegistrationStatus
       });
 
       const res = await fetch(`/api/admin/registrations?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.status === 401) {
+      if ([401, 403, 503].includes(res.status)) {
         handleLogout();
         return;
       }
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Unable to load registrations');
       setRegistrations(data.registrations || []);
       setPagination(data.pagination);
-    } catch (err) {
-      console.error('Failed fetching registrations:', err);
+      setLoadError(null);
+    } catch (err: any) {
+      setLoadError(`Registrations failed to load: ${err.message}`);
     } finally {
       setLoading(false);
     }
+  };
+
+  // KPI card click: open Registrations & Leads with the matching payment-status filter applied
+  const openFilteredRegistrations = (paymentStatus: string) => {
+    setSearchQuery('');
+    setFilterPaymentStatus(paymentStatus);
+    setActiveTab('registrations');
+    fetchRegistrations(1, { search: '', paymentStatus });
   };
 
   // Fetch Audit Logs
@@ -281,21 +368,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
       const res = await fetch('/api/admin/audit-logs', {
         headers: { Authorization: `Bearer ${token}` }
       });
+      if (res.status === 401 || res.status === 403) return handleLogout();
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Unable to load audit logs');
       setAuditLogs(data.auditLogs || []);
-    } catch (err) {
-      console.error('Failed fetching audit logs:', err);
+      setLoadError(null);
+    } catch (err: any) {
+      setLoadError(`Audit trail failed to load: ${err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (token) {
+    if (token && sessionVerified) {
       fetchOverview();
       fetchRegistrations(1);
     }
-  }, [token]);
+  }, [token, sessionVerified]);
 
   // Open Detail Modal
   const openDetail = async (id: string) => {
@@ -304,11 +394,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
       const res = await fetch(`/api/admin/registration/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      if (res.status === 401 || res.status === 403) return handleLogout();
       const data = await res.json();
+      if (!res.ok || !data.registration) throw new Error(data.error || 'Booking not found');
       setSelectedReg(data.registration);
       setSelectedPayments(data.payments || []);
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      alert(`Unable to open booking: ${e.message}`);
     } finally {
       setDetailLoading(false);
     }
@@ -316,6 +408,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
 
   // Update Status
   const handleUpdateStatus = async (regId: string, newRegStatus: string, newPaymentStatus: string) => {
+    if (!window.confirm('Cancel this booking? Its payment status will be set to CANCELLED.')) return;
     try {
       const res = await fetch(`/api/admin/registration/${regId}/status`, {
         method: 'PATCH',
@@ -329,13 +422,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
         })
       });
       const data = await res.json();
-      if (data.success) {
-        setSelectedReg(data.registration);
-        fetchRegistrations(pagination.page);
-        fetchOverview();
-      }
-    } catch (e) {
-      alert('Failed to update status');
+      if (!res.ok || !data.success) throw new Error(data.error || 'Request failed');
+      setSelectedReg(data.registration);
+      fetchRegistrations(pagination.page);
+      fetchOverview();
+    } catch (e: any) {
+      alert(`Failed to update status: ${e.message}`);
     }
   };
 
@@ -359,10 +451,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
           eventType: webhookSimType
         })
       });
+      if (res.status === 401) return handleLogout();
       const data = await res.json();
-      setWebhookResult(data);
-      fetchRegistrations(1);
-      fetchOverview();
+      setWebhookResult(res.ok ? { simulatedTestEvent: true, ...data } : { status: res.status, error: data.error || 'Simulation failed' });
+      if (res.ok) {
+        fetchRegistrations(1);
+        fetchOverview();
+      }
     } catch (e: any) {
       setWebhookResult({ error: e.message });
     } finally {
@@ -371,14 +466,56 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
   };
 
   // CSV Export Trigger
-  const handleExportCSV = () => {
-    const params = new URLSearchParams({
-      projectId: filterProject,
-      paymentStatus: filterPaymentStatus,
-      registrationStatus: filterRegistrationStatus
-    });
-    window.location.href = `/api/admin/export-csv?${params.toString()}`;
+  // The export API needs the admin Bearer token, so it is fetched and saved as a file (a plain link cannot send it)
+  const handleExportCSV = async () => {
+    if (exporting) return;
+    setExporting(true);
+    setExportFeedback(null);
+    try {
+      const params = new URLSearchParams({
+        search: searchQuery.trim(),
+        projectId: filterProject,
+        paymentStatus: filterPaymentStatus,
+        registrationStatus: filterRegistrationStatus
+      });
+      const res = await fetch(`/api/admin/export-csv?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.status === 401 || res.status === 403) {
+        handleLogout();
+        return;
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Export failed (HTTP ${res.status})`);
+      }
+      const blob = await res.blob();
+      const filename = res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1]
+        || `garg-realty-bookings-${new Date().toLocaleDateString('sv-SE')}.csv`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setExportFeedback({ ok: true, text: `Downloaded ${filename} (${res.headers.get('X-Export-Count') || 'all'} matching bookings).` });
+    } catch (e: any) {
+      setExportFeedback({ ok: false, text: `${e.message || 'Export failed'}. Please try again.` });
+    } finally {
+      setExporting(false);
+    }
   };
+
+  // A stored token is being checked with the server: show nothing from the dashboard yet
+  if (token && !sessionVerified) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 text-xs text-slate-300">
+        Verifying admin session…
+      </div>
+    );
+  }
 
   // 1. If not logged in, render Admin Login screen
   if (!token) {
@@ -429,9 +566,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
             </div>
 
             <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-[11px] text-slate-500">
-              <p className="font-semibold text-slate-700 mb-0.5">Default Master Credentials:</p>
-              <p>Email: <span className="font-mono text-slate-800">admin@gargrealty.com</span></p>
-              <p>Password: <span className="font-mono text-slate-800">AdminPassword@2026</span></p>
+              <p className="font-semibold text-slate-700 mb-0.5">Authorized administrators only</p>
+              <p>Sign in with your assigned admin email and password.</p>
+              <p>Contact the site administrator if you need access.</p>
             </div>
 
             <button
@@ -495,7 +632,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
         </div>
 
         {/* Tab Navigation */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex gap-6 text-xs font-semibold">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex gap-6 text-xs font-semibold overflow-x-auto whitespace-nowrap">
           <button
             onClick={() => setActiveTab('overview')}
             className={`py-2.5 border-b-2 transition-colors cursor-pointer ${
@@ -551,14 +688,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
 
       {/* Main Admin Content Container */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
-        
+
+        {loadError && (
+          <div className="mb-4 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center justify-between gap-3">
+            <span>{loadError}</span>
+            <button onClick={() => { setLoadError(null); fetchOverview(); fetchRegistrations(pagination.page); }} className="px-2.5 py-1 bg-white border border-rose-200 rounded font-semibold cursor-pointer hover:bg-rose-100">
+              Retry
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'overview' && !metrics && (
+          <div className="bg-white p-8 rounded-xl border border-slate-200 text-center text-xs text-slate-500">
+            {loading ? 'Loading dashboard overview…' : 'Dashboard overview is not available.'}
+          </div>
+        )}
+
         {/* TAB 1: OVERVIEW */}
         {activeTab === 'overview' && metrics && (
           <div className="space-y-6">
             
             {/* KPI Cards Row */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+              <button
+                type="button"
+                onClick={() => openFilteredRegistrations('all')}
+                aria-label="Total Registrations: View all bookings"
+                className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs text-left w-full cursor-pointer transition-all hover:border-[#0f5973] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0f5973]"
+              >
                 <div className="flex items-center justify-between text-slate-500 mb-2">
                   <span className="text-xs font-semibold uppercase tracking-wider">Total Registrations</span>
                   <Users className="w-4 h-4 text-[#0f5973]" />
@@ -567,9 +724,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                 <div className="mt-2 text-[11px] text-slate-500">
                   Today: <span className="font-semibold text-slate-800">+{metrics.todayRegistrations}</span>
                 </div>
-              </div>
+              </button>
 
-              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+              <button
+                type="button"
+                onClick={() => openFilteredRegistrations('PAID')}
+                aria-label="Paid Bookings: View verified paid bookings"
+                className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs text-left w-full cursor-pointer transition-all hover:border-[#0f5973] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0f5973]"
+              >
                 <div className="flex items-center justify-between text-slate-500 mb-2">
                   <span className="text-xs font-semibold uppercase tracking-wider">Paid Bookings</span>
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -578,9 +740,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                 <div className="mt-2 text-[11px] text-slate-500">
                   Success rate: {metrics.totalRegistrations ? Math.round((metrics.paidRegistrations / metrics.totalRegistrations) * 100) : 0}%
                 </div>
-              </div>
+              </button>
 
-              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+              <button
+                type="button"
+                onClick={() => openFilteredRegistrations('PENDING,INITIATED')}
+                aria-label="Pending / Initiated: View pending and initiated payments"
+                className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs text-left w-full cursor-pointer transition-all hover:border-[#0f5973] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0f5973]"
+              >
                 <div className="flex items-center justify-between text-slate-500 mb-2">
                   <span className="text-xs font-semibold uppercase tracking-wider">Pending / Initiated</span>
                   <Clock className="w-4 h-4 text-amber-500" />
@@ -589,9 +756,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                 <div className="mt-2 text-[11px] text-slate-500">
                   Failed: <span className="text-rose-600 font-semibold">{metrics.failedPayments}</span>
                 </div>
-              </div>
+              </button>
 
-              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+              <button
+                type="button"
+                onClick={() => openFilteredRegistrations('PAID')}
+                aria-label="Verified Revenue: View paid bookings contributing to verified revenue"
+                className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs text-left w-full cursor-pointer transition-all hover:border-[#0f5973] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0f5973]"
+              >
                 <div className="flex items-center justify-between text-slate-500 mb-2">
                   <span className="text-xs font-semibold uppercase tracking-wider">Verified Revenue</span>
                   <CreditCard className="w-4 h-4 text-[#0f5973]" />
@@ -602,7 +774,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                 <div className="mt-2 text-[11px] text-slate-500">
                   This Month: <span className="font-semibold text-slate-800">₹ {metrics.thisMonthRevenue.toLocaleString('en-IN')}</span>
                 </div>
-              </div>
+              </button>
             </div>
 
             {/* Quick Actions & Recent Stream */}
@@ -651,24 +823,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                   <div className="space-y-3 text-xs">
                     <div className="flex items-center justify-between p-2.5 rounded bg-slate-50">
                       <span className="text-slate-600">Subdomain Target:</span>
-                      <span className="font-mono font-semibold text-slate-800">apply.yourdomain.com</span>
+                      <span className="font-mono font-semibold text-slate-800">{integrations?.appUrl || 'Not configured'}</span>
                     </div>
 
                     <div className="flex items-center justify-between p-2.5 rounded bg-slate-50">
                       <span className="text-slate-600">Payment Gateway:</span>
-                      <span className="font-semibold text-emerald-700 flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Razorpay Ready
+                      {integrations?.razorpayConfigured ? (
+                        <span className="font-semibold text-emerald-700 flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Razorpay keys configured
+                        </span>
+                      ) : (
+                        <span className="font-semibold text-amber-700">Razorpay keys not configured (QR + UTR only)</span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between p-2.5 rounded bg-slate-50">
+                      <span className="text-slate-600">Webhook Secret:</span>
+                      <span className={`font-semibold ${integrations?.webhookSecretConfigured ? 'text-emerald-700' : 'text-amber-700'}`}>
+                        {integrations?.webhookSecretConfigured ? 'Configured (HMAC-SHA256)' : 'Not configured'}
                       </span>
                     </div>
 
                     <div className="flex items-center justify-between p-2.5 rounded bg-slate-50">
-                      <span className="text-slate-600">Webhook Security:</span>
-                      <span className="font-semibold text-emerald-700">HMAC-SHA256</span>
+                      <span className="text-slate-600">Google Sheets:</span>
+                      <span className={`font-semibold ${integrations?.googleSheetsConfigured ? 'text-emerald-700' : 'text-amber-700'}`}>
+                        {integrations?.googleSheetsConfigured ? 'Credentials configured' : 'Not configured'}
+                      </span>
                     </div>
 
                     <div className="flex items-center justify-between p-2.5 rounded bg-slate-50">
-                      <span className="text-slate-600">CRM Lead Forwarder:</span>
-                      <span className="font-semibold text-[#0f5973]">Active Adapter</span>
+                      <span className="text-slate-600">Simulated Payments:</span>
+                      <span className={`font-semibold ${integrations?.simulatedPaymentsAllowed ? 'text-amber-700' : 'text-slate-700'}`}>
+                        {integrations?.simulatedPaymentsAllowed ? 'Enabled (local test mode)' : 'Disabled'}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -712,9 +899,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                   className="px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white text-slate-700"
                 >
                   <option value="all">All Payment Statuses</option>
+                  <option value="PENDING,INITIATED">PENDING + INITIATED</option>
+                  <option value="PENDING">PENDING (UTR awaiting verification)</option>
                   <option value="PAID">PAID</option>
                   <option value="INITIATED">INITIATED</option>
                   <option value="FAILED">FAILED</option>
+                  <option value="CANCELLED">CANCELLED</option>
                 </select>
 
                 <button
@@ -728,13 +918,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
               <div className="flex items-center gap-2 w-full md:w-auto justify-end">
                 <button
                   onClick={handleExportCSV}
-                  className="px-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  disabled={exporting}
+                  className="px-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-60 disabled:cursor-wait"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>Export CSV</span>
+                  <span>{exporting ? 'Exporting…' : 'Export CSV'}</span>
                 </button>
               </div>
             </div>
+
+            {exportFeedback && (
+              <div className={`p-3 rounded-lg text-xs border ${exportFeedback.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
+                {exportFeedback.text}
+              </div>
+            )}
 
             {/* Registrations Table */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
@@ -747,6 +944,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                       <th className="py-3 px-4">Mobile & City</th>
                       <th className="py-3 px-4">Project / Unit</th>
                       <th className="py-3 px-4">Token Payable</th>
+                      <th className="py-3 px-4">Submitted UTR</th>
                       <th className="py-3 px-4">Payment</th>
                       <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4">Date</th>
@@ -756,7 +954,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {registrations.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="py-8 text-center text-slate-400">
+                        <td colSpan={10} className="py-8 text-center text-slate-400">
                           No registrations found matching the specified filters.
                         </td>
                       </tr>
@@ -780,6 +978,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                           <td className="py-3 px-4 font-mono font-semibold">
                             ₹ {r.total_payable.toLocaleString('en-IN')}
                           </td>
+                          <td className="py-3 px-4 font-mono">{r.utr_number || 'Not submitted'}</td>
                           <td className="py-3 px-4">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${
                               r.payment_status === 'PAID'
@@ -788,7 +987,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                                   ? 'bg-rose-50 text-rose-700 border border-rose-200'
                                   : 'bg-amber-50 text-amber-700 border border-amber-200'
                             }`}>
-                              {r.payment_status}
+                              {getPaymentStatusLabel(r)}
                             </span>
                           </td>
                           <td className="py-3 px-4">
@@ -802,7 +1001,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                               month: 'short'
                             })}
                           </td>
-                          <td className="py-3 px-4 text-right">
+                          <td className="py-3 px-4 text-right whitespace-nowrap">
+                            {r.payment_status === 'PENDING' && r.utr_number && (
+                              <>
+                                <button
+                                  onClick={() => handleVerifyPendingUtr(r.id)}
+                                  disabled={reviewBusy}
+                                  className="px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 rounded transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  Verify Payment
+                                </button>
+                                <button
+                                  onClick={() => handleVerifyPendingUtr(r.id, false)}
+                                  disabled={reviewBusy}
+                                  className="px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50 rounded transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  Reject Payment
+                                </button>
+                              </>
+                            )}
                             <button
                               onClick={() => openDetail(r.id)}
                               className="px-2.5 py-1 text-xs font-semibold text-[#0f5973] hover:bg-teal-50 rounded transition-colors inline-flex items-center gap-1 cursor-pointer"
@@ -855,9 +1072,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                 </h3>
               </div>
 
-              <p className="text-xs text-slate-600 mb-6 leading-relaxed">
-                This testing console executes authentic HMAC-SHA256 signed webhook events against <code className="bg-slate-100 px-1 py-0.5 rounded text-[#0f5973]">/api/payment/webhook</code> to verify server-side verification, payment state mutation, CRM synchronization, and idempotency protection against duplicate deliveries.
+              <p className="text-xs text-slate-600 mb-3 leading-relaxed">
+                This testing console sends simulated gateway webhook events for a Razorpay order to check server-side handling and idempotency protection against duplicate deliveries.
               </p>
+              <div className={`mb-6 p-3 rounded-lg border text-xs ${integrations?.simulatedPaymentsAllowed ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
+                <strong>Test only:</strong> a simulated event is not proof that money was received and never replaces Verify Payment.{' '}
+                {integrations?.simulatedPaymentsAllowed
+                  ? 'Simulation is enabled on this server (ALLOW_SIMULATED_PAYMENTS=true, non-production).'
+                  : 'Simulation is disabled on this server; requests will be refused. It can only be enabled for local testing with ALLOW_SIMULATED_PAYMENTS=true outside production.'}
+                {!integrations?.razorpayConfigured && ' Razorpay keys are not configured, so there are no real gateway orders.'}
+              </div>
 
               <div className="space-y-4">
                 <div>
@@ -921,15 +1145,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
               Immutable System & Security Audit Logs
             </h3>
             <div className="space-y-2">
+              {auditLogs.length === 0 && (
+                <p className="text-xs text-slate-500">{loading ? 'Loading audit records…' : 'No audit records yet.'}</p>
+              )}
               {auditLogs.map(log => (
-                <div key={log.id} className="p-3 bg-slate-50 rounded-lg border border-slate-100 flex items-start justify-between text-xs">
-                  <div>
-                    <div className="flex items-center gap-2">
+                <div key={log.id} className="p-3 bg-slate-50 rounded-lg border border-slate-100 flex items-start justify-between gap-3 text-xs">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="font-bold text-slate-800 font-mono text-[11px]">{log.action}</span>
-                      <span className="text-[10px] text-slate-400">by {log.admin_id}</span>
+                      <span className="text-[10px] text-slate-400">by {log.new_value?.admin_email || log.new_value?.email || log.admin_id}</span>
                     </div>
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      Entity: <span className="font-mono">{log.entity_type} / {log.entity_id}</span>
+                    <p className="text-[11px] text-slate-500 mt-1 break-all">
+                      {log.new_value?.registration_number || log.old_value?.registration_number
+                        ? <>Booking: <span className="font-mono">{log.new_value?.registration_number || log.old_value?.registration_number}</span></>
+                        : <>Entity: <span className="font-mono">{log.entity_type} / {log.entity_id}</span></>}
+                      {(log.old_value?.payment_status || log.new_value?.payment_status) && (
+                        <> · Payment: <span className="font-mono">{log.old_value?.payment_status || '—'} → {log.new_value?.payment_status || '—'}</span></>
+                      )}
+                      {log.new_value?.utr_number && <> · UTR: <span className="font-mono">{log.new_value.utr_number}</span></>}
                     </p>
                   </div>
                   <span className="text-[11px] text-slate-400">
@@ -954,7 +1187,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                   </div>
                   <div>
                     <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2">
-                      <span>Google Sheet Integration</span>
+                      <span>Google Sheet Integration (Optional)</span>
                       <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-emerald-100 text-emerald-800 border border-emerald-200">
                         "Payment Domain"
                       </span>
@@ -992,20 +1225,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                   <div>
                     <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Target Spreadsheet</span>
                     <p className="text-base font-bold text-slate-900 font-mono">Payment Domain</p>
+                    <p className="text-[11px] text-slate-500 font-mono break-all">ID: {sheetsStatus?.spreadsheetId} · Tab: {sheetsStatus?.sheetTab}</p>
                   </div>
 
                   <div>
                     <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Access Authorization</span>
                     <div className="flex items-center gap-2 mt-0.5">
-                      {googleUser || sheetsStatus?.isConnected ? (
+                      {sheetsStatus?.isConnected ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Connected ({googleUser?.email || 'Authorized Owner'})</span>
+                          <span>Connected ({sheetsStatus?.serviceAccountConfigured ? 'Server Service Account' : googleUser?.email || 'Authorized Owner'})</span>
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
                           <Clock className="w-3.5 h-3.5 text-amber-600" />
-                          <span>Awaiting Google Sign-In</span>
+                          <span>Not Connected</span>
                         </span>
                       )}
                     </div>
@@ -1016,7 +1250,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                 {(!googleUser && !sheetsStatus?.isConnected) && (
                   <div className="pt-2 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <p className="text-xs text-slate-600">
-                      Sign in with your authorized Google account to connect your Google Sheets directly:
+                      Recommended: configure the server service account (see .env.example). Alternatively, sign in with the Google account that owns the sheet:
                     </p>
                     <button 
                       className="gsi-material-button shadow-sm"
@@ -1037,6 +1271,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                         <span className="gsi-material-button-contents">Sign in with Google</span>
                       </div>
                     </button>
+                  </div>
+                )}
+
+                {sheetsStatus?.configProblems?.length > 0 && (
+                  <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-1">
+                    <p className="font-bold">Optional integration — not configured. Bookings and UTR submissions are saved in the local database and remain fully available here and in Export CSV. To also mirror them to Google Sheets:</p>
+                    <ul className="list-disc pl-5">
+                      {sheetsStatus.configProblems.map((p: string, i: number) => <li key={i} className="break-words">{p}</li>)}
+                    </ul>
+                  </div>
+                )}
+
+                {sheetsStatus?.lastError && (
+                  <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs break-words">
+                    Last sync error: {sheetsStatus.lastError}
                   </div>
                 )}
 
@@ -1061,7 +1310,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                   </p>
                   <p className="text-slate-600 leading-relaxed">
                     • <strong>Project:</strong> Strictly fixed to <strong>"Pangot"</strong>.<br />
-                    • <strong>Selected Plan:</strong> Only accepts one of 4 allowed values: <code>₹7 L - Co-Own</code>, <code>₹18 L - Co-Own</code>, <code>Studio - Full Own</code>, <code>Villa - Full Own</code>. Any other value is strictly rejected.
+                    • <strong>Selected Plan:</strong> Only accepts one of 4 allowed values: <code>7 L – Co-Own</code>, <code>18 L – Co-Own</code>, <code>Studio – Full Own</code>, <code>Villa – Full Own</code>. Any other value is strictly rejected.
                   </p>
                 </div>
 
@@ -1092,50 +1341,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                     <span>Duplicate Row Protection</span>
                   </p>
                   <p className="text-slate-600 leading-relaxed">
-                    • <strong>Idempotency Key:</strong> Unique <code>Registration ID</code>.<br />
+                    • <strong>Idempotency Key:</strong> Unique <code>Booking ID</code>.<br />
                     • Existing rows are updated in place upon UTR submission or payment verification, eliminating duplicate records.
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* Exactly 19 Allowed Columns Display */}
+            {/* Exactly 12 Allowed Columns Display */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="font-bold text-sm text-slate-900 uppercase tracking-wider">
-                    Authorized Columns in "Payment Domain" (Exact 19 Columns)
+                    Authorized Columns in "Payment Domain" (Exact 12 Columns)
                   </h4>
                   <p className="text-xs text-slate-500 mt-0.5">
                     No extra or automated columns are created in the spreadsheet.
                   </p>
                 </div>
                 <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-800 font-mono text-xs font-bold">
-                  19 / 19 Fixed
+                  12 / 12 Fixed
                 </span>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 text-xs">
                 {[
-                  '1. Registration ID',
-                  '2. Full Name',
-                  '3. Mobile Number',
-                  '4. WhatsApp Number',
+                  '1. Timestamp',
+                  '2. Booking ID',
+                  '3. Customer Name',
+                  '4. Phone Number',
                   '5. Email',
-                  '6. Country',
-                  '7. State',
-                  '8. City',
-                  '9. Pincode',
-                  '10. Full Address',
-                  '11. Project',
-                  '12. Selected Plan',
-                  '13. Number of Units',
-                  '14. Booking Token Amount',
-                  '15. Payment Status',
-                  '16. Payment Reference / Transaction ID',
-                  '17. Payment Method',
-                  '18. Registration Date',
-                  '19. Registration Time'
+                  '6. Project',
+                  '7. Unit Type',
+                  '8. Number of Units',
+                  '9. Booking Token / Booking Amount',
+                  '10. Payment Amount',
+                  '11. UTR / Transaction ID',
+                  '12. Payment Status'
                 ].map((col, idx) => (
                   <div key={idx} className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg font-mono text-[11px] text-slate-700">
                     {col}
@@ -1178,7 +1420,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                 <div className="flex items-center gap-3">
                   <div>
                     <span className="text-[10px] uppercase font-bold text-slate-400">Payment Status</span>
-                    <p className="font-bold text-sm text-[#0f5973]">{selectedReg.payment_status}</p>
+                    <p className="font-bold text-sm text-[#0f5973]">{getPaymentStatusLabel(selectedReg)}</p>
                   </div>
                   <div className="h-6 w-px bg-slate-200"></div>
                   <div>
@@ -1189,10 +1431,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
 
                 <div className="flex gap-2">
                   <button
-                    onClick={() => handleUpdateStatus(selectedReg.id, 'CONFIRMED', 'PAID')}
-                    className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded font-semibold transition-colors cursor-pointer"
+                    onClick={() => handleVerifyPendingUtr(selectedReg.id)}
+                    disabled={reviewBusy || selectedReg.payment_status !== 'PENDING' || !selectedReg.utr_number}
+                    title={selectedReg.payment_status !== 'PENDING' || !selectedReg.utr_number ? 'Only a pending payment with a submitted UTR can be reviewed' : undefined}
+                    className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    Mark Paid & Confirmed
+                    Verify Payment
+                  </button>
+                  <button
+                    onClick={() => handleVerifyPendingUtr(selectedReg.id, false)}
+                    disabled={reviewBusy || selectedReg.payment_status !== 'PENDING' || !selectedReg.utr_number}
+                    title={selectedReg.payment_status !== 'PENDING' || !selectedReg.utr_number ? 'Only a pending payment with a submitted UTR can be reviewed' : undefined}
+                    className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Reject Payment
                   </button>
                   <button
                     onClick={() => handleUpdateStatus(selectedReg.id, 'CANCELLED', 'CANCELLED')}
@@ -1202,6 +1454,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                   </button>
                 </div>
               </div>
+
+              {/* No UTR on file: let the admin record one from the customer's payment receipt */}
+              {!selectedReg.utr_number && ['INITIATED', 'PENDING', 'PAYMENT_PROCESSING', 'FAILED'].includes(selectedReg.payment_status) && (
+                <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
+                  <span className="text-[10px] uppercase font-bold text-slate-500">Record UTR from customer's payment receipt</span>
+                  <p className="text-[11px] text-slate-600">
+                    Use only when the customer has paid but could not submit the UTR. Enter the UTR exactly as shown on their UPI receipt.
+                    Recording it does not mark the booking paid — check the bank statement, then use Verify Payment.
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      value={recordUtr}
+                      onChange={e => setRecordUtr(e.target.value)}
+                      placeholder="UTR / Transaction Reference"
+                      aria-label="UTR / Transaction Reference"
+                      className="sm:w-56 px-3 py-2 text-xs rounded-lg border border-slate-300 font-mono"
+                    />
+                    <input
+                      type="text"
+                      value={recordEvidence}
+                      onChange={e => setRecordEvidence(e.target.value)}
+                      placeholder='Evidence source, e.g. "UPI receipt sent by customer on 19 Oct"'
+                      aria-label="Evidence source"
+                      className="flex-1 px-3 py-2 text-xs rounded-lg border border-slate-300"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRecordUtr(selectedReg.id)}
+                      disabled={recordBusy || !recordUtr.trim() || recordEvidence.trim().length < 10}
+                      className="px-3 py-2 bg-[#0f5973] hover:bg-[#0a4358] text-white rounded-lg font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                      {recordBusy ? 'Saving…' : 'Record UTR'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* UTR Verification Strip if submitted via HDFC SmartHub QR */}
               {selectedReg.utr_number && (
@@ -1216,10 +1505,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                   {selectedReg.payment_status === 'PENDING' && (
                     <button
                       onClick={() => handleVerifyPendingUtr(selectedReg.id)}
+                      disabled={reviewBusy}
                       className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-bold text-xs uppercase tracking-wider transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>Verify UTR &amp; Mark as PAID (Sync to Sheets)</span>
+                      <span>Verify Payment (Sync to Sheets)</span>
                     </button>
                   )}
                 </div>

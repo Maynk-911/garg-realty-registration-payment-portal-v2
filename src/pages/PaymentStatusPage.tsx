@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Registration, PaymentRecord } from '../types.js';
-import { BookingFormReceipt } from '../components/BookingFormReceipt.js';
+import { BookingFormReceipt, useVerifiedReceipt } from '../components/BookingFormReceipt.js';
+import { getPaymentStatusLabel } from '../bookingOptions.js';
 import { 
   CheckCircle2, 
   XCircle, 
@@ -28,6 +29,8 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isRetrying, setIsRetrying] = useState<boolean>(false);
+  // Final receipt comes from the server only after admin verification
+  const verified = useVerifiedReceipt(registration);
 
   const fetchStatus = async () => {
     try {
@@ -72,7 +75,9 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
         fullName: registration.full_name,
         email: registration.email,
         mobile: registration.mobile,
-        projectName: 'Pangot'
+        projectName: 'Pangot',
+        selectedPlan: registration.selected_plan,
+        numberOfUnits: registration.units_count
       });
     } catch (err: any) {
       alert(err.message || 'Failed to re-open payment checkout');
@@ -110,8 +115,10 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
     );
   }
 
-  const isPaid = registration.payment_status === 'PAID';
+  const isPaid = registration.payment_status === 'PAID' && Boolean(registration.payment_verified_at && registration.payment_verified_by);
   const isFailed = registration.payment_status === 'FAILED';
+  const hasSubmittedPayment = Boolean(registration.utr_number) || registration.payment_status === 'PAID';
+  const statusLabel = getPaymentStatusLabel(registration);
   const latestPayment = payments[payments.length - 1];
 
   return (
@@ -147,7 +154,7 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
                 </div>
                 <div>
                   <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
-                    Booking Registration Successful
+                    Booking Confirmed · Payment Verified
                   </h1>
                   <p className="text-sm font-semibold text-emerald-700 mt-0.5">
                     Thank you for registering for Pangot.
@@ -155,19 +162,23 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
                 </div>
               </div>
 
-              <button
-                onClick={() => window.print()}
-                className="px-4 py-2.5 bg-[#0f5973] hover:bg-[#0a4358] text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-sm transition-colors flex items-center gap-2 cursor-pointer"
-              >
-                <Printer className="w-4 h-4" />
-                <span>Download / Print Receipt</span>
-              </button>
+              {verified.receipt ? (
+                <button
+                  onClick={() => window.print()}
+                  className="px-4 py-2.5 bg-[#0f5973] hover:bg-[#0a4358] text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-sm transition-colors flex items-center gap-2 cursor-pointer"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Download / Print Receipt</span>
+                </button>
+              ) : (
+                <span className="text-xs text-slate-500">{verified.loading ? 'Preparing your receipt…' : 'Receipt unavailable — please refresh.'}</span>
+              )}
             </div>
 
             {/* Exactly Specified Confirmation Parameters */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-6 text-xs text-slate-700">
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                <span className="text-[10px] uppercase font-bold text-slate-400">Registration ID</span>
+                <span className="text-[10px] uppercase font-bold text-slate-400">Booking ID</span>
                 <p className="text-base font-extrabold font-mono text-[#0f5973] mt-0.5">
                   {registration.registration_number}
                 </p>
@@ -190,12 +201,12 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                 <span className="text-[10px] uppercase font-bold text-slate-400">Selected Plan</span>
                 <p className="text-sm font-bold text-slate-900 mt-0.5">
-                  {registration.selected_plan || registration.unit_size || registration.unit_number || '₹7 L - Co-Own'}
+                  {registration.selected_plan || registration.unit_size || registration.unit_number || '—'}
                 </p>
               </div>
 
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                <span className="text-[10px] uppercase font-bold text-slate-400">Amount Paid</span>
+                <span className="text-[10px] uppercase font-bold text-slate-400">Amount Verified</span>
                 <p className="text-sm font-bold text-slate-900 mt-0.5 font-mono">
                   ₹ {(registration.total_payment_received || registration.total_payable).toLocaleString('en-IN')}
                 </p>
@@ -204,7 +215,7 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
               <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200">
                 <span className="text-[10px] uppercase font-bold text-emerald-700">Payment Status</span>
                 <p className="text-sm font-bold text-emerald-800 mt-0.5">
-                  PAID
+                  {statusLabel}
                 </p>
               </div>
             </div>
@@ -250,7 +261,7 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
             </div>
           </div>
         ) : (
-          /* PAYMENT STATUS: PENDING VERIFICATION */
+          /* PAYMENT SUBMITTED (awaiting accounts verification) / AWAITING PAYMENT */
           <div className="no-print mb-8 bg-white border border-amber-300 rounded-2xl p-6 sm:p-8 shadow-xs">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
               <div className="flex items-start gap-4">
@@ -262,17 +273,16 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
                     <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
                       Payment Verification Pending
                     </h1>
-                    <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase bg-amber-100 text-amber-900 border border-amber-300 font-mono">
-                      PENDING
-                    </span>
                   </div>
                   <p className="text-sm font-semibold text-amber-800 mt-1">
-                    Your booking token payment reference is under verification with HDFC Bank SmartHub.
+                    {hasSubmittedPayment
+                      ? 'Payment details submitted successfully. Verification is pending.'
+                      : 'Your booking details are saved. Complete the payment to submit your booking.'}
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={fetchStatus}
                   className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
@@ -287,13 +297,22 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
                   <Printer className="w-4 h-4" />
                   <span>Print Acknowledgement</span>
                 </button>
+                {!hasSubmittedPayment && (
+                  <button
+                    onClick={handleRetry}
+                    disabled={isRetrying}
+                    className="px-4 py-2 bg-[#b87e2b] hover:bg-[#a66f24] text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-sm transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    Complete Payment
+                  </button>
+                )}
               </div>
             </div>
 
             {/* Exactly Specified Confirmation Parameters */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-6 text-xs text-slate-700">
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                <span className="text-[10px] uppercase font-bold text-slate-400">Registration ID</span>
+                <span className="text-[10px] uppercase font-bold text-slate-400">Booking ID</span>
                 <p className="text-sm font-extrabold font-mono text-[#0f5973] mt-0.5">
                   {registration.registration_number}
                 </p>
@@ -309,7 +328,7 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                 <span className="text-[10px] uppercase font-bold text-slate-400">Project / Plan</span>
                 <p className="text-sm font-bold text-slate-900 mt-0.5">
-                  Pangot · {registration.selected_plan || '₹7 L - Co-Own'}
+                  Pangot · {registration.selected_plan || '—'} × {registration.units_count || 1}
                 </p>
               </div>
 
@@ -317,7 +336,7 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
                 <span className="text-[10px] uppercase font-bold text-amber-800">Payment Status</span>
                 <p className="text-sm font-bold text-amber-900 mt-0.5 flex items-center gap-1.5 font-mono">
                   <Clock className="w-3.5 h-3.5 text-amber-600" />
-                  <span>PENDING</span>
+                  <span>{statusLabel}</span>
                 </p>
               </div>
             </div>
@@ -325,30 +344,33 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
             {/* UTR Reference Details */}
             <div className="mt-4 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1.5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                <span className="text-slate-600">Submitted Bank Reference (UTR):</span>
-                <strong className="font-mono text-slate-900 text-sm tracking-wide">{registration.utr_number || 'Awaiting Submission'}</strong>
+                <span className="text-slate-600">UTR / Transaction ID:</span>
+                <strong className="font-mono text-slate-900 text-sm tracking-wide">{registration.utr_number || 'Not submitted yet'}</strong>
               </div>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pt-1.5 border-t border-slate-200">
                 <span className="text-slate-600">Payment Channel:</span>
-                <span className="text-slate-800 font-semibold">HDFC Bank SmartHub VYAPAR (TID: 68283784) · Garg Residency Pvt Ltd</span>
+                <span className="text-slate-800 font-semibold">UPI QR · Garg Residency Pvt Ltd</span>
               </div>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pt-1.5 border-t border-slate-200">
-                <span className="text-slate-600">Token Amount:</span>
+                <span className="text-slate-600">Payment Amount:</span>
                 <span className="text-slate-900 font-bold font-mono text-sm">₹ {registration.total_payable.toLocaleString('en-IN')}</span>
               </div>
             </div>
 
             <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg text-xs text-amber-900 mt-4 leading-relaxed">
-              • <strong>Hold Active:</strong> Your Pangot unit allocation hold has been initiated. Payment status remains <strong>PENDING</strong> until verified by our accounts desk against HDFC Bank SmartHub terminal records. Once verified, your status will update to PAID and your official Allotment Certificate will be issued.
+              {hasSubmittedPayment
+                ? <><strong>Payment submitted; verification pending. This is not a final booking receipt.</strong> Our accounts team will check the UTR against the bank records and then confirm your booking. Please keep your Booking ID <strong>{registration.registration_number}</strong> for reference.</>
+                : <>No payment reference has been submitted for this booking yet. Use <strong>Complete Payment</strong> above to scan the QR code and submit your UTR.</>}
             </div>
           </div>
         )}
 
         {/* OFFICIAL BOOKING & PLOT DETAILS FORM (PDF REPLICA RECEIPT) */}
         <div className="mt-6">
-          <BookingFormReceipt 
+          <BookingFormReceipt
             registration={registration}
             payment={latestPayment}
+            verified={verified}
           />
         </div>
 

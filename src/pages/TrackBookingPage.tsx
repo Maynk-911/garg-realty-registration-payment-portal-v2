@@ -12,7 +12,41 @@ export const TrackBookingPage: React.FC<TrackBookingPageProps> = ({ onNavigateHo
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ registration: Registration; payments: PaymentRecord[] } | null>(null);
+  const [bookings, setBookings] = useState<{ registration: Registration; payments: PaymentRecord[] }[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
+
+  // Same flow as "Complete Payment" on the status page: open the QR + UTR page for this booking
+  const handleCompletePayment = async () => {
+    if (!result || paying) return;
+    const reg = result.registration;
+    setPaying(true);
+    setPayError(null);
+    try {
+      const res = await fetch('/api/payment/retry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ registrationId: reg.id })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Unable to open the payment page');
+      onPayNow(data.order, {
+        id: reg.id,
+        registrationNumber: reg.registration_number,
+        fullName: reg.full_name,
+        email: reg.email,
+        mobile: reg.mobile,
+        projectName: 'Pangot',
+        selectedPlan: reg.selected_plan,
+        numberOfUnits: reg.units_count
+      });
+    } catch (err: any) {
+      setPayError(`${err.message || 'Unable to open the payment page'}. Please try again.`);
+    } finally {
+      setPaying(false);
+    }
+  };
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,6 +55,7 @@ export const TrackBookingPage: React.FC<TrackBookingPageProps> = ({ onNavigateHo
     setLoading(true);
     setError(null);
     setResult(null);
+    setBookings([]);
 
     try {
       const res = await fetch(`/api/registration/${encodeURIComponent(query.trim())}`);
@@ -30,10 +65,12 @@ export const TrackBookingPage: React.FC<TrackBookingPageProps> = ({ onNavigateHo
         throw new Error(data.error || 'No booking found matching this reference');
       }
 
-      setResult({
+      const matches = data.bookings || [{
         registration: data.registration,
         payments: data.payments || []
-      });
+      }];
+      setBookings(matches);
+      setResult(matches[0]);
     } catch (err: any) {
       setError(err.message || 'Registration reference not found');
     } finally {
@@ -54,7 +91,7 @@ export const TrackBookingPage: React.FC<TrackBookingPageProps> = ({ onNavigateHo
             Track Booking & Download Receipt
           </h1>
           <p className="text-xs sm:text-sm text-slate-600 mt-2 max-w-md mx-auto">
-            Enter your official registration number (e.g. <span className="font-mono font-semibold text-slate-800">GRG-2026-000101</span>) or registered mobile number to retrieve your booking dossier.
+            Enter your Booking ID (e.g. <span className="font-mono font-semibold text-slate-800">GRG-PNG-20261005-0101</span>) or registered mobile number to view your booking and save your receipt as PDF after payment verification.
           </p>
         </div>
 
@@ -67,7 +104,8 @@ export const TrackBookingPage: React.FC<TrackBookingPageProps> = ({ onNavigateHo
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Registration No. (GRG-2026-XXXXXX) or ID"
+                placeholder="Booking ID or registered mobile number"
+                aria-label="Booking ID or registered mobile number"
                 className="w-full pl-9 pr-4 py-2.5 text-xs sm:text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-1 focus:ring-[#0f5973]"
               />
             </div>
@@ -98,7 +136,40 @@ export const TrackBookingPage: React.FC<TrackBookingPageProps> = ({ onNavigateHo
         {/* Search Result */}
         {result && (
           <div className="space-y-6">
-            <BookingFormReceipt 
+            {bookings.length > 1 && (
+              <select
+                aria-label="Select booking"
+                value={result.registration.id}
+                onChange={e => setResult(bookings.find(booking => booking.registration.id === e.target.value) || null)}
+                className="no-print w-full px-4 py-2.5 text-xs sm:text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-1 focus:ring-[#0f5973]"
+              >
+                {bookings.map(booking => (
+                  <option key={booking.registration.id} value={booking.registration.id}>
+                    {booking.registration.registration_number}
+                  </option>
+                ))}
+              </select>
+            )}
+            {!result.registration.utr_number && ['INITIATED', 'PENDING', 'PAYMENT_PROCESSING'].includes(result.registration.payment_status) && (
+              <div className="no-print bg-white border border-amber-300 rounded-xl p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <p className="text-xs sm:text-sm text-slate-700">
+                  No payment reference has been submitted for <strong>{result.registration.registration_number}</strong> yet.
+                  If you have already paid, open the payment page and enter the UTR from your UPI app — you do not need to pay again.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleCompletePayment}
+                  disabled={paying}
+                  className="px-5 py-2.5 bg-[#b87e2b] hover:bg-[#a66f24] text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-sm transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                >
+                  {paying ? 'Opening…' : 'Complete Payment'}
+                </button>
+              </div>
+            )}
+            {payError && (
+              <div className="no-print p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs">{payError}</div>
+            )}
+            <BookingFormReceipt
               registration={result.registration}
               payment={result.payments[result.payments.length - 1]}
             />

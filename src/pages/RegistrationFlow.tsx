@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Project } from '../types.js';
+import { UNIT_OPTIONS } from '../bookingOptions.js';
 import { 
   User, 
   MapPin, 
@@ -35,18 +36,13 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
   const pangotProject = projects.find(p => p.id === 'proj_pangot') || projects[0] || {
     id: 'proj_pangot',
     name: 'Pangot Luxury Plots & Cottages',
-    token_amount: 50000,
+    token_amount: 51000,
     total_price: 2500000,
     roi_percentage: 14.5
   };
 
-  // The EXACT 4 ownership options requested by user
-  const OWNERSHIP_OPTIONS = [
-    '₹7 L - Co-Own',
-    '₹18 L - Co-Own',
-    'Studio - Full Own',
-    'Villa - Full Own'
-  ];
+  // The 4 bookable unit options
+  const OWNERSHIP_OPTIONS = UNIT_OPTIONS;
 
   // Form State
   const [formData, setFormData] = useState({
@@ -67,7 +63,7 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
     // Step 3 — Booking Details (Project is strictly FIXED to Pangot)
     projectId: 'proj_pangot',
     projectName: 'Pangot',
-    selectedPlan: '₹7 L - Co-Own',
+    selectedPlan: UNIT_OPTIONS[0] as string,
     numberOfUnits: 1,
     specificRequirement: '',
     additionalNotes: '',
@@ -107,7 +103,7 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
   }, []);
 
   // Server-synced token calculation based on Number of Units
-  const tokenPerUnit = pangotProject.token_amount || 50000;
+  const tokenPerUnit = pangotProject.token_amount || 51000;
   const bookingTokenAmount = tokenPerUnit * formData.numberOfUnits;
   const totalPayable = bookingTokenAmount;
 
@@ -151,7 +147,7 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
 
     if (step === 3) {
       if (!formData.selectedPlan) {
-        errors.selectedPlan = 'Please select an ownership plan';
+        errors.selectedPlan = 'Please select a unit option';
       }
       if (formData.numberOfUnits < 1) {
         errors.numberOfUnits = 'Please select at least 1 unit';
@@ -248,7 +244,8 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
     { num: 1, title: 'Applicant Details' },
     { num: 2, title: 'Address' },
     { num: 3, title: 'Booking Details' },
-    { num: 4, title: 'Review Details' }
+    { num: 4, title: 'Review Details' },
+    { num: 5, title: 'Payment' }
   ];
 
   return (
@@ -259,7 +256,7 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-teal-50 border border-teal-200 text-[#0f5973] rounded-full text-xs font-semibold mb-2">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Pangot Project · Booking & Plot Details Form</span>
+            <span>Pangot Project · Booking Form</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0f5973] font-['Playfair_Display']">
             Pangot Unit Registration
@@ -271,7 +268,7 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
 
         {/* Minimal Step Indicator */}
         <div className="mb-6 bg-white p-3 rounded-xl border border-slate-200/90 shadow-xs">
-          <div className="grid grid-cols-4 gap-2 text-center">
+          <div className="grid grid-cols-5 gap-1.5 sm:gap-2 text-center">
             {steps.map(s => {
               const isActive = currentStep === s.num;
               const isDone = currentStep > s.num;
@@ -287,7 +284,7 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
                         : 'text-slate-400 bg-slate-50'
                   }`}
                 >
-                  <span className="hidden sm:inline">Step {s.num}: </span>
+                  <span className="hidden sm:inline">{s.num}. </span>
                   <span>{s.title.split(' ')[0]}</span>
                 </div>
               );
@@ -513,7 +510,7 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700">Project Allotment</span>
                   <p className="font-extrabold text-base text-[#0f5973]">Pangot</p>
-                  <p className="text-[11px] text-teal-800">Pangot Luxury Plots & Cottages, Nainital</p>
+                  <p className="text-[11px] text-teal-800">Pangot, Nainital, Uttarakhand</p>
                 </div>
                 <div className="text-right">
                   <span className="text-[10px] uppercase font-bold text-teal-700">Booking Token</span>
@@ -525,9 +522,9 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
               {/* 2. Preferred Unit / Plan (The 4 exact options requested) */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-2">
-                  Preferred Unit / Plan:
+                  Select Unit:
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="grid grid-cols-2 gap-2.5">
                   {OWNERSHIP_OPTIONS.map((planLabel) => {
                     const isSelected = formData.selectedPlan === planLabel;
                     return (
@@ -560,10 +557,10 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
                     onChange={e => setFormData({ ...formData, numberOfUnits: parseInt(e.target.value, 10) })}
                     className="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-lg border border-slate-300 text-slate-800 bg-white font-semibold focus:outline-none focus:ring-1 focus:ring-[#0f5973]"
                   >
-                    <option value={1}>1 Unit (Standard Allotment)</option>
-                    <option value={2}>2 Units (Adjacent Plot Preference)</option>
+                    <option value={1}>1 Unit</option>
+                    <option value={2}>2 Units</option>
                     <option value={3}>3 Units</option>
-                    <option value={4}>4 Units (Estate Block)</option>
+                    <option value={4}>4 Units</option>
                   </select>
                 </div>
 
@@ -587,7 +584,7 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
                   type="text"
                   value={formData.specificRequirement}
                   onChange={e => setFormData({ ...formData, specificRequirement: e.target.value })}
-                  placeholder="e.g. Scenic Hill Facing, Ground Access, Corner Preference"
+                  placeholder="e.g. Scenic Hill Facing, Ground Access"
                   className="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-lg border border-slate-300 text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0f5973]"
                 />
               </div>
@@ -634,7 +631,7 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
                   <span>REVIEW DETAILS</span>
                 </h3>
                 <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
-                  Ready for Secure Payment
+                  Next: Payment
                 </span>
               </div>
 
@@ -683,7 +680,7 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-700">
                     <div><span className="text-slate-500">Project:</span> <strong className="text-[#0f5973]">Pangot</strong></div>
-                    <div><span className="text-slate-500">Selected Plan:</span> <strong className="text-[#0f5973] font-bold">{formData.selectedPlan}</strong></div>
+                    <div><span className="text-slate-500">Selected Unit:</span> <strong className="text-[#0f5973] font-bold">{formData.selectedPlan}</strong></div>
                     <div><span className="text-slate-500">Number of Units:</span> <strong className="text-slate-900">{formData.numberOfUnits}</strong></div>
                     <div><span className="text-slate-500">Requirement:</span> <span className="text-slate-900">{formData.specificRequirement || 'Standard'}</span></div>
                   </div>
@@ -733,7 +730,7 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
                   {isSubmitting ? (
                     <>
                       <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      <span>CREATING PAYMENT ORDER...</span>
+                      <span>SAVING YOUR BOOKING...</span>
                     </>
                   ) : (
                     <>
