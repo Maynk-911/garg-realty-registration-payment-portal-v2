@@ -13,12 +13,14 @@ import { PaymentStatusPage } from './pages/PaymentStatusPage.js';
 import { TrackBookingPage } from './pages/TrackBookingPage.js';
 import { AdminDashboard } from './pages/AdminDashboard.js';
 import { PolicyPages } from './pages/PolicyPages.js';
+import { ProjectSelection } from './pages/ProjectSelection.js';
+import { ProjectDetailsPage } from './pages/ProjectDetailsPage.js';
+import { PANGOT_ID, DHOLERA_ID } from './bookingOptions.js';
 import { Project, Registration } from './types.js';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<string>('landing');
   const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>('proj_pangot');
   const [activeRegistrationId, setActiveRegistrationId] = useState<string>('');
   // Bumped after a payment submission so the status page reloads even when it is already open
   const [statusRefreshKey, setStatusRefreshKey] = useState(0);
@@ -35,7 +37,6 @@ export default function App() {
       .then(data => {
         if (data.projects && data.projects.length > 0) {
           setProjects(data.projects);
-          setSelectedProjectId(data.projects[0].id);
         }
       })
       .catch(err => console.error('Failed to load projects:', err));
@@ -57,6 +58,12 @@ export default function App() {
       setCurrentView('track');
     } else if (path === '/register') {
       setCurrentView('form');
+    } else if (path === '/pangot') {
+      setCurrentView('pangot');
+    } else if (path === '/dholera') {
+      setCurrentView('dholera');
+    } else if (path === '/dholera/register') {
+      setCurrentView('form_dholera');
     } else if (path === '/privacy-policy') {
       setCurrentView('policy_privacy');
     } else if (path === '/terms-and-conditions') {
@@ -95,6 +102,7 @@ export default function App() {
   const navigateTo = (view: string) => {
     const paths: Record<string, string> = {
       landing: '/', form: '/register', track: '/track', admin: '/admin',
+      pangot: '/pangot', dholera: '/dholera', form_dholera: '/dholera/register',
       policy_terms: '/terms-and-conditions', policy_privacy: '/privacy-policy',
       policy_refund: '/refund-policy', status: `/payment-status/${activeRegistrationId}`
     };
@@ -119,6 +127,11 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1">
         {currentView === 'landing' && (
+          <ProjectSelection projects={projects} />
+        )}
+
+        {/* Pangot: existing project page and booking form (unchanged URLs: /pangot, /register) */}
+        {currentView === 'pangot' && (
           <LandingPage
             projects={projects}
             onStartRegistration={() => navigateTo('form')}
@@ -127,10 +140,29 @@ export default function App() {
 
         {currentView === 'form' && (
           <RegistrationFlow
+            key={PANGOT_ID}
             projects={projects}
-            selectedProjectId={selectedProjectId}
+            projectId={PANGOT_ID}
             onInitiatePayment={handleInitiatePayment}
-            onCancel={() => navigateTo('landing')}
+            onCancel={() => navigateTo('pangot')}
+          />
+        )}
+
+        {/* Dholera: its own project page and booking form */}
+        {currentView === 'dholera' && (
+          <ProjectDetailsPage
+            project={projects.find(p => p.id === DHOLERA_ID)}
+            registerHref="/dholera/register"
+          />
+        )}
+
+        {currentView === 'form_dholera' && (
+          <RegistrationFlow
+            key={DHOLERA_ID}
+            projects={projects}
+            projectId={DHOLERA_ID}
+            onInitiatePayment={handleInitiatePayment}
+            onCancel={() => navigateTo('dholera')}
           />
         )}
 
@@ -163,7 +195,7 @@ export default function App() {
           <PolicyPages type="privacy" onBack={() => navigateTo('landing')} />
         )}
         {currentView === 'policy_refund' && (
-          <PolicyPages type="refund" onBack={() => navigateTo('landing')} />
+          <PolicyPages type="refund" onBack={() => navigateTo('landing')} projects={projects} />
         )}
       </main>
 
@@ -179,6 +211,8 @@ export default function App() {
           registrationData={activeRegistrationData}
           onSuccess={handlePaymentSuccess}
           onFailure={handlePaymentFailure}
+          paymentQrUrl={projects.find(p => p.id === activeRegistrationData.projectId)?.payment_qr_url}
+          payeeName={projects.find(p => p.id === activeRegistrationData.projectId)?.payee_name}
         />
       )}
 

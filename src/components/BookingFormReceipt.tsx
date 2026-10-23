@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Registration, PaymentRecord } from '../types.js';
 import { BrandLogo } from './BrandLogo.js';
-import { getPaymentStatusLabel } from '../bookingOptions.js';
+import { getPaymentStatusLabel, PANGOT_ID } from '../bookingOptions.js';
 import { CheckCircle2, Printer, Download, ShieldCheck } from 'lucide-react';
 
 /** Final receipt as issued by the server (GET /api/registration/:id/receipt), only after admin verification. */
@@ -44,13 +44,16 @@ interface BookingFormReceiptProps {
   onPrint?: () => void;
   /** Pass when the parent already asked the server; otherwise the component asks itself. */
   verified?: { receipt: VerifiedReceipt | null; loading: boolean };
+  /** The booking's own project refund policy (Pangot's existing wording is used for Pangot bookings) */
+  refundPolicy?: string;
 }
 
 export const BookingFormReceipt: React.FC<BookingFormReceiptProps> = ({
   registration,
   payment,
   onPrint,
-  verified
+  verified,
+  refundPolicy
 }) => {
   const own = useVerifiedReceipt(verified ? null : registration);
   const { receipt, loading: receiptLoading } = verified || own;
@@ -211,7 +214,7 @@ export const BookingFormReceipt: React.FC<BookingFormReceiptProps> = ({
           </div>
           <div className="border border-slate-300 border-t-0 px-3 py-1.5 flex items-center">
             <span className="font-semibold text-slate-600 w-32">ROI</span>
-            <span className="font-bold text-slate-900">{registration.roi_percentage}% per annum (Targeted)</span>
+            <span className="font-bold text-slate-900">{registration.roi_percentage > 0 ? `${registration.roi_percentage}% per annum (Targeted)` : 'Not applicable'}</span>
           </div>
         </div>
 
@@ -285,7 +288,9 @@ export const BookingFormReceipt: React.FC<BookingFormReceiptProps> = ({
             6. TERMS AND CONDITIONS
           </div>
           <div className="border border-slate-300 border-t-0 p-3 space-y-1 text-slate-700 text-xs">
-            <p>• The token amount is fully-refundable if booking get cancel within 15 days.</p>
+            {registration.project_id === PANGOT_ID || !registration.project_id
+              ? <p>• The token amount is fully-refundable if booking get cancel within 15 days.</p>
+              : refundPolicy && <p className="whitespace-pre-line">• {refundPolicy}</p>}
             <p>• Full payment must be completed within the agreed schedule.</p>
             <p>• Management reserves the right to cancel bookings in case of delayed payments.</p>
           </div>
@@ -387,7 +392,7 @@ const PaymentAcknowledgement: React.FC<{ registration: Registration; checking: b
             <BrandLogo />
             <div className="text-left sm:text-right">
               <h1 className="text-lg sm:text-xl font-bold uppercase tracking-wide text-[#0f5973]">{title}</h1>
-              <p className="text-xs text-slate-500">Pangot · Garg Realty Group</p>
+              <p className="text-xs text-slate-500">{registration.project_name || 'Pangot'} · Garg Realty Group</p>
             </div>
           </div>
           <div className="h-[2px] w-full bg-[#b87e2b] mb-4"></div>

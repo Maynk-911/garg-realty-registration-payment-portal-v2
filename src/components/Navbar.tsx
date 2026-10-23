@@ -49,7 +49,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate }) => {
           </a>
 
           <a
-            href="/register"
+            href="/"
             className="px-5 sm:px-7 py-2.5 sm:py-3 bg-[#b87e2b] hover:bg-[#a66f24] active:scale-[0.99] text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg shadow-sm hover:shadow transition-all cursor-pointer"
           >
             REGISTER / BOOK UNIT

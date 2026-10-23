@@ -1,4 +1,5 @@
 import { Registration, PaymentRecord } from '../types.js';
+import { db } from './db.js';
 
 export class EmailNotificationService {
   private adminEmail: string;
@@ -60,6 +61,9 @@ Verified At:  ${payment.verified_at}
   }
 
   public async sendClientBookingConfirmation(registration: Registration, payment: PaymentRecord): Promise<void> {
+    // Each booking carries its own project's refund terms
+    const refundPolicy = (await db.getProject(registration.project_id).catch(() => null))?.refund_policy;
+    const refundLine = refundPolicy ? `- ${refundPolicy}\n` : '';
     const message = `
 ==============================================================
 GARG REALTY GROUP | Garg Residency Private Limited
@@ -81,8 +85,7 @@ Transaction ID:         ${payment.gateway_payment_id || 'N/A'}
 Date:                   ${payment.verified_at || new Date().toLocaleString('en-IN')}
 
 Terms Reminder:
-- The token amount is fully-refundable if booking is cancelled within 15 days.
-- Full payment schedule will be shared by our Relationship Executive.
+${refundLine}- Full payment schedule will be shared by our Relationship Executive.
 
 You can view your official digital booking form and receipt at:
 /payment-status/${registration.id}

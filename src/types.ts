@@ -23,6 +23,14 @@ export interface OwnershipPlan {
   type?: 'CO_OWN' | 'FULL_OWN';
   token_amount?: number;
   total_price?: number;
+  /** Plot / unit size as published by the admin (e.g. "200 Sq. Yd") */
+  size?: string;
+  /** Total units of this plan that can be sold; undefined = not tracked (Pangot) */
+  inventory?: number;
+  /** Hidden from customers when false (kept so existing bookings still reference it) */
+  active?: boolean;
+  /** Remaining units, computed by the server for customers (null = not tracked) */
+  available?: number | null;
 }
 
 export interface Project {
@@ -43,6 +51,27 @@ export interface Project {
   features: string[];
   created_at: string;
   updated_at: string;
+  /** Booking ID code, e.g. PNG -> GRG-PNG-YYYYMMDD-0101 */
+  code?: string;
+  /** Short name used on bookings, receipts and reports (e.g. "Pangot", "Dholera") */
+  short_name?: string;
+  /** Title shown on the homepage project card */
+  display_name?: string;
+  /** Customers can register and pay only when true */
+  booking_enabled?: boolean;
+  /** Account name shown next to the payment QR */
+  payee_name?: string;
+  /** Payment QR image as a data URL (server-side only; customers get payment_qr_url) */
+  payment_qr_data?: string;
+  payment_qr_updated_at?: string;
+  /** Public URL of the payment QR (computed for customers) */
+  payment_qr_url?: string;
+  /** Refund terms shown on the form, receipts and refund policy page */
+  refund_policy?: string;
+  /** Set when an admin saves this project's details; the original seed values are never shown */
+  admin_configured_at?: string;
+  details_verified_at?: string;
+  details_verified_by?: string;
 }
 
 export interface Registration {

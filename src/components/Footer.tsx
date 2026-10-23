@@ -40,7 +40,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             onClick={() => onNavigate('policy_refund')}
             className="hover:text-slate-900 transition-colors cursor-pointer"
           >
-            15-Day Refund Policy
+            Refund Policy
           </button>
         </div>
 

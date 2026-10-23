@@ -195,7 +195,7 @@ export function formatRegistrationToRow(reg: Registration): (string | number)[] 
     sanitizeCellValue(reg.full_name),                                     // 3. Customer Name
     sanitizeCellValue(reg.mobile),                                        // 4. Phone Number
     sanitizeCellValue(reg.email),                                         // 5. Email
-    'Pangot',                                                             // 6. Project (fixed to Pangot)
+    sanitizeCellValue(reg.project_name || 'Pangot'),                       // 6. Project (the booking's own project)
     sanitizeCellValue(normalizeUnitOption(reg.selected_plan) || reg.selected_plan || reg.unit_size || ''), // 7. Unit Type
     unitsCount,                                                           // 8. Number of Units
     tokenAmount,                                                          // 9. Booking Token / Booking Amount
@@ -382,7 +382,7 @@ class GoogleSheetsService {
           })
         });
         if (webhookRes.ok) {
-          db.logAudit({
+          await db.logAudit({
             action: 'GOOGLE_SHEETS_WEBHOOK_SYNCED',
             admin_id: 'system',
             entity_type: 'GOOGLE_SHEET',
@@ -409,7 +409,7 @@ class GoogleSheetsService {
     if (!token) {
       // No server-side Google credentials configured yet.
       // Record locally in sync log so it can be synchronized once credentials are configured ("Sync All").
-      db.logAudit({
+      await db.logAudit({
         action: 'GOOGLE_SHEETS_SYNC_QUEUED',
         admin_id: 'system',
         entity_type: 'GOOGLE_SHEET',
@@ -467,7 +467,7 @@ class GoogleSheetsService {
           throw new Error(`Could not update the booking's row. ${explainGoogleError(updateRes.status, await updateRes.text(), getServiceAccount()?.email)}`);
         }
 
-        db.logAudit({
+        await db.logAudit({
           action: 'GOOGLE_SHEETS_ROW_UPDATED',
           admin_id: 'system',
           entity_type: 'GOOGLE_SHEET',
@@ -496,7 +496,7 @@ class GoogleSheetsService {
           throw new Error(`Could not append the row. ${explainGoogleError(appendRes.status, await appendRes.text(), getServiceAccount()?.email)}`);
         }
 
-        db.logAudit({
+        await db.logAudit({
           action: 'GOOGLE_SHEETS_ROW_APPENDED',
           admin_id: 'system',
           entity_type: 'GOOGLE_SHEET',
@@ -510,7 +510,7 @@ class GoogleSheetsService {
     } catch (err: any) {
       this.lastError = err.message;
       console.error('Google Sheets sync error:', err.message);
-      db.logAudit({
+      await db.logAudit({
         action: 'GOOGLE_SHEETS_SYNC_ERROR',
         admin_id: 'system',
         entity_type: 'GOOGLE_SHEET',
@@ -590,7 +590,7 @@ class GoogleSheetsService {
    * Sync all registrations in the database to the Google Sheet.
    */
   public async syncAll(tokenOverride?: string): Promise<{ total: number; synced: number; errors: number }> {
-    const registrations = db.listRegistrations();
+    const registrations = await db.listRegistrations();
     let synced = 0;
     let errors = 0;
 

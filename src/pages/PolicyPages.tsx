@@ -1,12 +1,17 @@
 import React from 'react';
 import { ArrowLeft, ShieldCheck, FileText, CheckCircle } from 'lucide-react';
+import { Project } from '../types.js';
+import { DHOLERA_ID } from '../bookingOptions.js';
 
 interface PolicyPagesProps {
   type: 'terms' | 'privacy' | 'refund';
   onBack: () => void;
+  /** Used to show each project's own refund policy */
+  projects?: Project[];
 }
 
-export const PolicyPages: React.FC<PolicyPagesProps> = ({ type, onBack }) => {
+export const PolicyPages: React.FC<PolicyPagesProps> = ({ type, onBack, projects = [] }) => {
+  const dholera = projects.find(p => p.id === DHOLERA_ID);
   return (
     <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto bg-white p-8 sm:p-12 rounded-xl border border-slate-200 shadow-sm text-slate-800">
@@ -114,10 +119,12 @@ export const PolicyPages: React.FC<PolicyPagesProps> = ({ type, onBack }) => {
                 Client Assurance & Guarantee
               </span>
               <h1 className="text-2xl font-bold text-[#0f5973] mt-1 font-['Playfair_Display']">
-                15-Day 100% Token Refund Policy
+                Token Refund Policy
               </h1>
               <p className="text-xs text-slate-400 mt-1">Garg Residency Private Limited Policy Guidelines</p>
             </div>
+
+            <h2 className="text-lg font-bold text-[#0f5973]">Pangot – Sukkoon Resort, Nainital: 15-Day 100% Token Refund</h2>
 
             <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-lg flex items-start gap-3">
               <CheckCircle className="w-5 h-5 text-emerald-700 flex-shrink-0 mt-0.5" />
@@ -137,6 +144,13 @@ export const PolicyPages: React.FC<PolicyPagesProps> = ({ type, onBack }) => {
                 <li>Upon verification that your request is within the 15-day window, the refund is initiated directly via Razorpay back to your original payment source (UPI account or bank card).</li>
                 <li>Refunds typically reflect in your account within 3 to 5 business days as per standard banking settlement cycles.</li>
               </ol>
+            </section>
+
+            <section className="space-y-3 pt-4 border-t border-slate-200">
+              <h2 className="text-lg font-bold text-[#0f5973]">{dholera?.display_name || 'Dholera – Smart City Plots, Gujarat'}</h2>
+              {dholera?.booking_enabled && dholera.refund_policy
+                ? <p className="whitespace-pre-line">{dholera.refund_policy}</p>
+                : <p className="text-slate-500">The refund policy for this project will be published here when bookings open.</p>}
             </section>
           </div>
         )}

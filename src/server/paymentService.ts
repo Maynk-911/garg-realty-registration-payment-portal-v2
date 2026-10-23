@@ -1,11 +1,14 @@
 import crypto from 'crypto';
 import { db } from './db.js';
+import type { Store } from './store.js';
 import { crmService } from './crmService.js';
 import { emailService } from './emailService.js';
 import { googleSheetsService } from './googleSheetsService.js';
 import { Registration, PaymentRecord, PaymentStatus, WebhookEvent } from '../types.js';
 
 export interface CreateOrderParams {
+  /** Run inside this transaction (e.g. together with creating the booking). Defaults to its own transaction. */
+  store?: Store;
   registrationId: string;
   amount: number; // in INR
   currency?: string;
@@ -70,7 +73,8 @@ export class PaymentService {
     isSimulator: boolean;
   }> {
     const { registrationId, amount } = params;
-    const registration = db.getRegistration(registrationId);
+    const store: Store = params.store || db;
+    const registration = await store.getRegistration(registrationId);
     if (!registration) {
       throw new Error(`Registration with ID ${registrationId} not found`);
     }
@@ -78,7 +82,7 @@ export class PaymentService {
     const currency = params.currency || 'INR';
     const amountInPaise = Math.round(amount * 100);
 
-    const existingPayments = db.getPaymentsForRegistration(registrationId);
+    const existingPayments = await store.getPaymentsForRegistration(registrationId);
     const attemptNumber = existingPayments.length + 1;
 
     let gatewayOrderId = '';
@@ -142,12 +146,14 @@ export class PaymentService {
       updated_at: new Date().toISOString()
     };
 
-    db.savePayment(paymentRecord);
-
-    // Update registration payment status strictly to PENDING
-    registration.payment_status = 'PENDING';
-    registration.updated_at = new Date().toISOString();
-    db.saveRegistration(registration);
+    // Payment record and booking status are saved together
+    await store.transaction(async tx => {
+      await tx.savePayment(paymentRecord);
+      // Update registration payment status strictly to PENDING
+      registration.payment_status = 'PENDING';
+      registration.updated_at = new Date().toISOString();
+      await tx.saveRegistration(registration);
+    });
 
     return {
       orderId: gatewayOrderId,
@@ -162,15 +168,15 @@ export class PaymentService {
   /**
    * Verifies client-side signature returned by Razorpay Checkout
    */
-  public verifyClientSignature(params: VerifyPaymentParams): { success: boolean; message: string; payment?: PaymentRecord } {
+  public async verifyClientSignature(params: VerifyPaymentParams): Promise<{ success: boolean; message: string; payment?: PaymentRecord }> {
     const { registrationId, razorpayOrderId, razorpayPaymentId, razorpaySignature, paymentMethod } = params;
 
-    const registration = db.getRegistration(registrationId);
+    const registration = await db.getRegistration(registrationId);
     if (!registration) {
       return { success: false, message: 'Registration not found' };
     }
 
-    const payment = db.getPaymentByOrderId(razorpayOrderId);
+    const payment = await db.getPaymentByOrderId(razorpayOrderId);
     if (!payment) {
       return { success: false, message: 'Payment record for this order was not found' };
     }
@@ -197,11 +203,12 @@ export class PaymentService {
       payment.error_code = 'BAD_SIGNATURE';
       payment.error_description = 'Signature verification mismatch';
       payment.updated_at = new Date().toISOString();
-      db.savePayment(payment);
-
       registration.payment_status = 'FAILED';
       registration.updated_at = new Date().toISOString();
-      db.saveRegistration(registration);
+      await db.transaction(async tx => {
+        await tx.savePayment(payment);
+        await tx.saveRegistration(registration);
+      });
 
       return { success: false, message: 'Payment signature could not be verified' };
     }
@@ -214,26 +221,26 @@ export class PaymentService {
     payment.signature_verified = true;
     payment.verified_at = now;
     payment.updated_at = now;
-    db.savePayment(payment);
-
     registration.payment_status = 'PAID';
     registration.registration_status = 'CONFIRMED';
     registration.total_payment_received = payment.amount;
     registration.mode_of_payment = payment.payment_method;
     registration.updated_at = now;
-    db.saveRegistration(registration);
+    // Payment, booking and audit entry are saved together
+    await db.transaction(async tx => {
+      await tx.savePayment(payment);
+      await tx.saveRegistration(registration);
+      await tx.logAudit({
+        admin_id: 'SYSTEM_GATEWAY',
+        action: 'PAYMENT_VERIFIED',
+        entity_type: 'PAYMENT',
+        entity_id: payment.id,
+        old_value: { status: 'INITIATED' },
+        new_value: { status: 'PAID', paymentId: razorpayPaymentId }
+      });
+    });
     googleSheetsService.syncRegistration(registration).catch(err => {
       console.warn('Google Sheets sync warning (verify):', err.message);
-    });
-
-    // Audit log
-    db.logAudit({
-      admin_id: 'SYSTEM_GATEWAY',
-      action: 'PAYMENT_VERIFIED',
-      entity_type: 'PAYMENT',
-      entity_id: payment.id,
-      old_value: { status: 'INITIATED' },
-      new_value: { status: 'PAID', paymentId: razorpayPaymentId }
     });
 
     // Notify Admin and Client
@@ -264,7 +271,7 @@ export class PaymentService {
     const eventType = parsed.event || 'unknown';
 
     // Check Idempotency: Has this webhook event already been processed?
-    const existingEvent = db.getWebhookEvent(eventId);
+    const existingEvent = await db.getWebhookEvent(eventId);
     if (existingEvent && existingEvent.processed) {
       console.log(`[Webhook Idempotency] Skipping duplicate webhook event ${eventId} (${eventType})`);
       return { status: 200, message: 'Event already processed (idempotent)', eventId };
@@ -297,7 +304,7 @@ export class PaymentService {
 
     if (!signatureVerified) {
       webhookEvent.error = 'Invalid signature';
-      db.saveWebhookEvent(webhookEvent);
+      await db.saveWebhookEvent(webhookEvent);
       console.warn(`[Webhook Security] Rejected webhook ${eventId}: Signature mismatch`);
       return { status: 401, message: 'Invalid webhook signature' };
     }
@@ -312,7 +319,7 @@ export class PaymentService {
         const method = paymentEntity?.method;
 
         if (orderId) {
-          const paymentRecord = db.getPaymentByOrderId(orderId);
+          const paymentRecord = await db.getPaymentByOrderId(orderId);
           if (paymentRecord) {
             const now = new Date().toISOString();
             paymentRecord.payment_status = 'PAID';
@@ -321,24 +328,17 @@ export class PaymentService {
             paymentRecord.webhook_verified = true;
             paymentRecord.verified_at = now;
             paymentRecord.updated_at = now;
-            db.savePayment(paymentRecord);
-
-            const registration = db.getRegistration(paymentRecord.registration_id);
-            if (registration && registration.payment_status !== 'PAID') {
+            // Payment, booking and audit entry are saved together
+            const confirmed = await db.transaction(async tx => {
+              await tx.savePayment(paymentRecord);
+              const registration = await tx.getRegistrationForUpdate(paymentRecord.registration_id);
+              if (!registration || registration.payment_status === 'PAID') return null;
               registration.payment_status = 'PAID';
               registration.registration_status = 'CONFIRMED';
               registration.total_payment_received = paymentRecord.amount;
               registration.updated_at = now;
-              db.saveRegistration(registration);
-              googleSheetsService.syncRegistration(registration).catch(err => {
-                console.warn('Google Sheets sync warning (webhook):', err.message);
-              });
-
-              emailService.notifyAdminPaymentSuccess(registration, paymentRecord).catch(console.error);
-              emailService.sendClientBookingConfirmation(registration, paymentRecord).catch(console.error);
-              crmService.updateLead(registration, paymentRecord).catch(console.error);
-
-              db.logAudit({
+              await tx.saveRegistration(registration);
+              await tx.logAudit({
                 admin_id: 'WEBHOOK_SERVICE',
                 action: 'PAYMENT_CAPTURED_VIA_WEBHOOK',
                 entity_type: 'PAYMENT',
@@ -346,6 +346,15 @@ export class PaymentService {
                 old_value: { status: 'INITIATED' },
                 new_value: { status: 'PAID', eventId }
               });
+              return registration;
+            });
+            if (confirmed) {
+              googleSheetsService.syncRegistration(confirmed).catch(err => {
+                console.warn('Google Sheets sync warning (webhook):', err.message);
+              });
+              emailService.notifyAdminPaymentSuccess(confirmed, paymentRecord).catch(console.error);
+              emailService.sendClientBookingConfirmation(confirmed, paymentRecord).catch(console.error);
+              crmService.updateLead(confirmed, paymentRecord).catch(console.error);
             }
           }
         }
@@ -353,20 +362,23 @@ export class PaymentService {
         const paymentEntity = parsed.payload?.payment?.entity || parsed.payload?.payment;
         const orderId = paymentEntity?.order_id;
         if (orderId) {
-          const paymentRecord = db.getPaymentByOrderId(orderId);
+          const paymentRecord = await db.getPaymentByOrderId(orderId);
           if (paymentRecord) {
             paymentRecord.payment_status = 'FAILED';
             paymentRecord.error_code = paymentEntity?.error_code || 'GATEWAY_DECLINE';
             paymentRecord.error_description = paymentEntity?.error_description || 'Payment was declined by bank or user';
             paymentRecord.updated_at = new Date().toISOString();
-            db.savePayment(paymentRecord);
-
-            const registration = db.getRegistration(paymentRecord.registration_id);
-            if (registration && registration.payment_status !== 'PAID') {
+            const failedReg = await db.transaction(async tx => {
+              await tx.savePayment(paymentRecord);
+              const registration = await tx.getRegistrationForUpdate(paymentRecord.registration_id);
+              if (!registration || registration.payment_status === 'PAID') return null;
               registration.payment_status = 'FAILED';
               registration.updated_at = new Date().toISOString();
-              db.saveRegistration(registration);
-              googleSheetsService.syncRegistration(registration).catch(err => {
+              await tx.saveRegistration(registration);
+              return registration;
+            });
+            if (failedReg) {
+              googleSheetsService.syncRegistration(failedReg).catch(err => {
                 console.warn('Google Sheets sync warning (failed):', err.message);
               });
             }
@@ -376,12 +388,12 @@ export class PaymentService {
 
       webhookEvent.processed = true;
       webhookEvent.processed_at = new Date().toISOString();
-      db.saveWebhookEvent(webhookEvent);
+      await db.saveWebhookEvent(webhookEvent);
 
       return { status: 200, message: 'Webhook processed successfully', eventId };
     } catch (err: any) {
       webhookEvent.error = err.message;
-      db.saveWebhookEvent(webhookEvent);
+      await db.saveWebhookEvent(webhookEvent);
       console.error('[Webhook Processing Error]', err);
       return { status: 500, message: `Processing error: ${err.message}` };
     }
@@ -391,7 +403,7 @@ export class PaymentService {
    * Helper to simulate a test webhook for testing idempotency and verification
    */
   public async simulateWebhookEvent(eventType: 'payment.captured' | 'payment.failed', orderId: string, trustedAdminSimulation: boolean = false) {
-    const payment = db.getPaymentByOrderId(orderId);
+    const payment = await db.getPaymentByOrderId(orderId);
     if (!payment) {
       throw new Error(`Order ${orderId} not found`);
     }

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { AlertCircle, ArrowLeft, CheckCircle2, Clock } from 'lucide-react';
 import { BrandLogo } from './BrandLogo.js';
-import { PAYMENT_QR_SRC } from '../bookingOptions.js';
+import { PAYMENT_QR_SRC, PANGOT_ID, PANGOT_PAYEE } from '../bookingOptions.js';
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -18,12 +18,16 @@ interface PaymentModalProps {
     fullName: string;
     email: string;
     mobile: string;
+    projectId?: string;
     projectName: string;
     selectedPlan?: string;
     numberOfUnits?: number;
   };
   onSuccess: (paymentResult: any) => void;
   onFailure: (errorMessage: string) => void;
+  /** The booking's own project payment QR and payee (never another project's) */
+  paymentQrUrl?: string;
+  payeeName?: string;
 }
 
 // FINAL PAYMENT STAGE — the only payment method is the official QR code.
@@ -32,8 +36,14 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   onClose,
   orderData,
   registrationData,
-  onSuccess
+  onSuccess,
+  paymentQrUrl,
+  payeeName
 }) => {
+  // Pangot (and bookings made before projects existed) use the official Pangot QR; other projects only their own
+  const isPangot = !registrationData.projectId || registrationData.projectId === PANGOT_ID;
+  const qrSrc = isPangot ? PAYMENT_QR_SRC : paymentQrUrl;
+  const payee = isPangot ? PANGOT_PAYEE : payeeName;
   const [utrNumber, setUtrNumber] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -159,13 +169,22 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 <p className="text-sm font-extrabold uppercase tracking-widest text-[#b87e2b] mb-3">
                   Scan &amp; Pay
                 </p>
-                <img
-                  src={PAYMENT_QR_SRC}
-                  alt="Official Garg Residency Pvt Ltd payment QR code"
-                  width={720}
-                  height={1216}
-                  className="block w-full max-w-[340px] h-auto mx-auto rounded-2xl border border-slate-200 shadow-sm"
-                />
+                {qrSrc ? (
+                  <img
+                    src={qrSrc}
+                    alt={`Official ${payee || registrationData.projectName} payment QR code`}
+                    width={720}
+                    height={1216}
+                    className="block w-full max-w-[340px] h-auto mx-auto rounded-2xl border border-slate-200 shadow-sm"
+                  />
+                ) : (
+                  <p className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-sm">
+                    The payment QR for this project is not available right now. Please do not pay until it is shown here.
+                  </p>
+                )}
+                {!isPangot && qrSrc && payee && (
+                  <p className="text-xs text-slate-500 mt-2">Payee: <strong className="text-slate-700">{payee}</strong></p>
+                )}
                 <p className="text-sm text-slate-700 mt-4">
                   Scan the QR code using your UPI app and pay <strong>{amountLabel}</strong>.
                 </p>

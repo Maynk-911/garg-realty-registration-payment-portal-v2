@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Project } from '../types.js';
-import { UNIT_OPTIONS } from '../bookingOptions.js';
+import { UNIT_OPTIONS, PANGOT_ID, PANGOT_REFUND_POLICY } from '../bookingOptions.js';
 import { 
   User, 
   MapPin, 
@@ -16,13 +16,15 @@ import {
 
 interface RegistrationFlowProps {
   projects: Project[];
-  selectedProjectId: string;
+  /** The project this form books (each project has its own form, plans, token and terms) */
+  projectId: string;
   onInitiatePayment: (orderData: any, registrationData: any) => void;
   onCancel: () => void;
 }
 
 export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
   projects,
+  projectId,
   onInitiatePayment,
   onCancel
 }) => {
@@ -32,17 +34,15 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [apiError, setApiError] = useState<string | null>(null);
 
-  // Pangot Project
-  const pangotProject = projects.find(p => p.id === 'proj_pangot') || projects[0] || {
-    id: 'proj_pangot',
-    name: 'Pangot Luxury Plots & Cottages',
-    token_amount: 51000,
-    total_price: 2500000,
-    roi_percentage: 14.5
-  };
+  const isPangot = projectId === PANGOT_ID;
+  const project = projects.find(p => p.id === projectId);
+  const projectName = isPangot ? 'Pangot' : (project?.short_name || project?.name || 'Project');
+  const projectLocation = isPangot ? 'Pangot, Nainital, Uttarakhand' : (project?.location || '');
+  const refundPolicy = isPangot ? PANGOT_REFUND_POLICY : (project?.refund_policy || '');
 
-  // The 4 bookable unit options
-  const OWNERSHIP_OPTIONS = UNIT_OPTIONS;
+  // Bookable options: Pangot's 4 fixed unit options, or the plots an admin has published for this project
+  const projectPlans = isPangot ? [] : (project?.ownership_plans || []);
+  const OWNERSHIP_OPTIONS: string[] = isPangot ? [...UNIT_OPTIONS] : projectPlans.map(pl => pl.label);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -55,15 +55,15 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
 
     // Step 2 — Address
     country: 'India',
-    state: 'Uttarakhand',
-    city: 'Nainital',
-    pincode: '263001',
+    state: isPangot ? 'Uttarakhand' : '',
+    city: isPangot ? 'Nainital' : '',
+    pincode: isPangot ? '263001' : '',
     address: '',
 
-    // Step 3 — Booking Details (Project is strictly FIXED to Pangot)
-    projectId: 'proj_pangot',
-    projectName: 'Pangot',
-    selectedPlan: UNIT_OPTIONS[0] as string,
+    // Step 3 — Booking Details (project fixed by the page this form was opened from)
+    projectId,
+    projectName,
+    selectedPlan: isPangot ? (UNIT_OPTIONS[0] as string) : '',
     numberOfUnits: 1,
     specificRequirement: '',
     additionalNotes: '',
@@ -102,8 +102,18 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
     }
   }, []);
 
+  // Pick the first plot that is still available once this project's plots have loaded
+  useEffect(() => {
+    if (!isPangot && !formData.selectedPlan && projectPlans.length) {
+      const first = projectPlans.find(pl => pl.available !== 0);
+      if (first) setFormData(prev => ({ ...prev, selectedPlan: first.label }));
+    }
+  }, [isPangot, projectPlans.length]);
+
   // Server-synced token calculation based on Number of Units
-  const tokenPerUnit = pangotProject.token_amount || 51000;
+  const selectedPlanInfo = projectPlans.find(pl => pl.label === formData.selectedPlan);
+  const tokenPerUnit = isPangot ? (project?.token_amount || 51000) : (selectedPlanInfo?.token_amount || 0);
+  const maxUnits = isPangot ? 4 : Math.max(1, Math.min(4, typeof selectedPlanInfo?.available === 'number' ? selectedPlanInfo.available : 4));
   const bookingTokenAmount = tokenPerUnit * formData.numberOfUnits;
   const totalPayable = bookingTokenAmount;
 
@@ -194,8 +204,8 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
           city: formData.city,
           pincode: formData.pincode,
           address: formData.address,
-          projectId: 'proj_pangot',
-          projectName: 'Pangot',
+          projectId,
+          projectName,
           selectedPlan: formData.selectedPlan,
           numberOfUnits: formData.numberOfUnits,
           unitSize: formData.selectedPlan,
@@ -228,7 +238,8 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
         fullName: formData.fullName,
         email: formData.email,
         mobile: formData.mobile,
-        projectName: 'Pangot',
+        projectId,
+        projectName,
         selectedPlan: formData.selectedPlan,
         numberOfUnits: formData.numberOfUnits
       });
@@ -248,6 +259,21 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
     { num: 5, title: 'Payment' }
   ];
 
+  // A project that is not open for booking (or not loaded) shows no form and no payment details
+  if (!isPangot && !project?.booking_enabled) {
+    return (
+      <div className="min-h-[calc(100vh-80px)] bg-slate-50 py-16 px-4">
+        <div className="max-w-xl mx-auto bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
+          <h1 className="text-2xl font-extrabold text-[#0f5973] font-['Playfair_Display']">{projects.length ? 'Bookings opening soon' : 'Loading…'}</h1>
+          {projects.length > 0 && (
+            <p className="text-sm text-slate-600 mt-2">Online booking for this project is not open yet. Details will be published once verified.</p>
+          )}
+          <a href="/" className="mt-6 inline-block text-sm font-semibold text-[#0f5973] hover:underline">Back to all projects</a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-[calc(100vh-80px)] bg-slate-50 py-10 px-4 sm:px-6 lg:px-8">
       <div className="max-w-2xl mx-auto">
@@ -256,13 +282,15 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-teal-50 border border-teal-200 text-[#0f5973] rounded-full text-xs font-semibold mb-2">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Pangot Project · Booking Form</span>
+            <span>{projectName} Project · Booking Form</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0f5973] font-['Playfair_Display']">
-            Pangot Unit Registration
+            {isPangot ? 'Pangot Unit Registration' : `${projectName} Plot Registration`}
           </h1>
           <p className="text-xs sm:text-sm text-slate-600 mt-1">
-            Complete your registration details below. Token amount is 100% refundable within 15 days.
+            {isPangot
+              ? 'Complete your registration details below. Token amount is 100% refundable within 15 days.'
+              : 'Complete your registration details below. Please read the refund policy before booking.'}
           </p>
         </div>
 
@@ -509,13 +537,13 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
               <div className="p-3.5 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700">Project Allotment</span>
-                  <p className="font-extrabold text-base text-[#0f5973]">Pangot</p>
-                  <p className="text-[11px] text-teal-800">Pangot, Nainital, Uttarakhand</p>
+                  <p className="font-extrabold text-base text-[#0f5973]">{projectName}</p>
+                  <p className="text-[11px] text-teal-800">{projectLocation}</p>
                 </div>
                 <div className="text-right">
                   <span className="text-[10px] uppercase font-bold text-teal-700">Booking Token</span>
                   <p className="font-bold text-[#0f5973] text-sm">₹{tokenPerUnit.toLocaleString('en-IN')} / Unit</p>
-                  <span className="text-[10px] text-emerald-700 font-semibold">15-Day Refund Guarantee</span>
+                  {isPangot && <span className="text-[10px] text-emerald-700 font-semibold">15-Day Refund Guarantee</span>}
                 </div>
               </div>
 
@@ -527,11 +555,14 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
                 <div className="grid grid-cols-2 gap-2.5">
                   {OWNERSHIP_OPTIONS.map((planLabel) => {
                     const isSelected = formData.selectedPlan === planLabel;
+                    const planInfo = projectPlans.find(pl => pl.label === planLabel);
+                    const soldOut = planInfo?.available === 0;
                     return (
                       <button
                         type="button"
                         key={planLabel}
-                        onClick={() => setFormData({ ...formData, selectedPlan: planLabel })}
+                        disabled={soldOut}
+                        onClick={() => setFormData({ ...formData, selectedPlan: planLabel, numberOfUnits: 1 })}
                         className={`p-3 text-xs sm:text-sm font-bold rounded-lg border text-center transition-all cursor-pointer ${
                           isSelected 
                             ? 'bg-[#0f5973] text-white border-[#0f5973] shadow-xs' 
@@ -539,6 +570,12 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
                         }`}
                       >
                         {planLabel}
+                        {planInfo && (
+                          <span className={`block mt-1 text-[10px] font-medium ${isSelected ? 'text-teal-100' : 'text-slate-500'}`}>
+                            {[planInfo.size, planInfo.total_price ? `₹${planInfo.total_price.toLocaleString('en-IN')}` : '', soldOut ? 'Sold out' : typeof planInfo.available === 'number' ? `${planInfo.available} left` : '']
+                              .filter(Boolean).join(' · ')}
+                          </span>
+                        )}
                       </button>
                     );
                   })}
@@ -557,10 +594,9 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
                     onChange={e => setFormData({ ...formData, numberOfUnits: parseInt(e.target.value, 10) })}
                     className="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-lg border border-slate-300 text-slate-800 bg-white font-semibold focus:outline-none focus:ring-1 focus:ring-[#0f5973]"
                   >
-                    <option value={1}>1 Unit</option>
-                    <option value={2}>2 Units</option>
-                    <option value={3}>3 Units</option>
-                    <option value={4}>4 Units</option>
+                    {Array.from({ length: maxUnits }, (_, i) => i + 1).map(n => (
+                      <option key={n} value={n}>{n} {n > 1 ? 'Units' : 'Unit'}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -597,7 +633,7 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
                   rows={2}
                   value={formData.additionalNotes}
                   onChange={e => setFormData({ ...formData, additionalNotes: e.target.value })}
-                  placeholder="Any preferences or instructions for our Pangot relationship manager"
+                  placeholder={`Any preferences or instructions for our ${projectName} relationship manager`}
                   className="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-lg border border-slate-300 text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0f5973]"
                 />
               </div>
@@ -612,7 +648,9 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
                     className="mt-0.5 rounded text-[#0f5973] focus:ring-0"
                   />
                   <span className="text-xs text-slate-700 leading-snug">
-                    I agree to the Terms & Conditions and 15-day refund policy, and consent to being contacted regarding my Pangot unit booking. <span className="text-rose-500">*</span>
+                    {isPangot
+                      ? 'I agree to the Terms & Conditions and 15-day refund policy, and consent to being contacted regarding my Pangot unit booking.'
+                      : `I agree to the Terms & Conditions and the ${projectName} refund policy, and consent to being contacted regarding my ${projectName} plot booking.`} <span className="text-rose-500">*</span>
                   </span>
                 </label>
                 {formErrors.consent && <p className="text-rose-600 text-[11px] mt-1">{formErrors.consent}</p>}
@@ -679,7 +717,7 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-700">
-                    <div><span className="text-slate-500">Project:</span> <strong className="text-[#0f5973]">Pangot</strong></div>
+                    <div><span className="text-slate-500">Project:</span> <strong className="text-[#0f5973]">{projectName}</strong></div>
                     <div><span className="text-slate-500">Selected Unit:</span> <strong className="text-[#0f5973] font-bold">{formData.selectedPlan}</strong></div>
                     <div><span className="text-slate-500">Number of Units:</span> <strong className="text-slate-900">{formData.numberOfUnits}</strong></div>
                     <div><span className="text-slate-500">Requirement:</span> <span className="text-slate-900">{formData.specificRequirement || 'Standard'}</span></div>
@@ -703,8 +741,8 @@ export const RegistrationFlow: React.FC<RegistrationFlowProps> = ({
                     </div>
                   </div>
 
-                  <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-2 mt-3">
-                    • The token amount is fully-refundable if booking is cancelled within 15 days.
+                  <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-2 mt-3 whitespace-pre-line">
+                    • {refundPolicy}
                   </p>
                 </div>
 

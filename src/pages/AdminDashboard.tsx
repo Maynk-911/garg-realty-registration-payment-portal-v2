@@ -24,7 +24,8 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { Registration, PaymentRecord, AuditLog } from '../types.js';
-import { getPaymentStatusLabel } from '../bookingOptions.js';
+import { getPaymentStatusLabel, PANGOT_ID, DHOLERA_ID } from '../bookingOptions.js';
+import { AdminProjectsPanel } from '../components/AdminProjectsPanel.js';
 import { googleSignIn, initAuth, logoutGoogle, getAccessToken } from '../lib/googleAuth.js';
 
 interface AdminDashboardProps {
@@ -51,7 +52,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
   const [loginLoading, setLoginLoading] = useState(false);
 
   // Dashboard Data State
-  const [activeTab, setActiveTab] = useState<'overview' | 'registrations' | 'webhooks' | 'audit' | 'sheets'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'registrations' | 'projects' | 'webhooks' | 'audit' | 'sheets'>('overview');
   const [metrics, setMetrics] = useState<any>(null);
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 15, totalPages: 1 });
@@ -298,7 +299,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
     if (!token) return;
     try {
       setLoading(true);
-      const res = await fetch('/api/admin/overview', {
+      const res = await fetch(`/api/admin/overview?projectId=${encodeURIComponent(filterProject)}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if ([401, 403, 503].includes(res.status)) {
@@ -385,7 +386,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
       fetchOverview();
       fetchRegistrations(1);
     }
-  }, [token, sessionVerified]);
+  }, [token, sessionVerified, filterProject]);
 
   // Open Detail Modal
   const openDetail = async (id: string) => {
@@ -683,6 +684,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
             <FileSpreadsheet className="w-3.5 h-3.5" />
             <span>Google Sheets ("Payment Domain")</span>
           </button>
+          <button
+            onClick={() => setActiveTab('projects')}
+            className={`py-2.5 border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'projects' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            Projects &amp; Inventory
+          </button>
         </div>
       </header>
 
@@ -695,6 +704,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
             <button onClick={() => { setLoadError(null); fetchOverview(); fetchRegistrations(pagination.page); }} className="px-2.5 py-1 bg-white border border-rose-200 rounded font-semibold cursor-pointer hover:bg-rose-100">
               Retry
             </button>
+          </div>
+        )}
+
+        {/* Project filter: overview figures, the bookings list and CSV export follow it */}
+        {(activeTab === 'overview' || activeTab === 'registrations') && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+            <label htmlFor="project-filter" className="font-semibold text-slate-600">Project:</label>
+            <select
+              id="project-filter"
+              value={filterProject}
+              onChange={e => setFilterProject(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-800 font-semibold"
+            >
+              <option value="all">All Projects</option>
+              <option value={PANGOT_ID}>Pangot</option>
+              <option value={DHOLERA_ID}>Dholera</option>
+            </select>
           </div>
         )}
 
@@ -799,10 +825,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
 
                 <div className="space-y-3">
                   {metrics.projectBreakdown?.map((pb: any, idx: number) => (
-                    <div key={idx} className="p-3 bg-slate-50 rounded-lg border border-slate-100 flex items-center justify-between text-xs">
+                    <div key={idx} className="p-3 bg-slate-50 rounded-lg border border-slate-100 flex items-center justify-between gap-3 text-xs">
                       <div>
-                        <p className="font-bold text-slate-800">{pb.name}</p>
+                        <p className="font-bold text-slate-800">
+                          {pb.name}
+                          {pb.bookingEnabled === false && <span className="ml-2 text-[10px] font-semibold text-amber-700">Bookings closed</span>}
+                        </p>
                         <p className="text-[11px] text-slate-500">{pb.count} registrations · {pb.paidCount} verified paid</p>
+                        <p className="text-[11px] text-slate-500">
+                          {pb.pendingVerification ?? 0} UTR awaiting verification · {pb.awaitingPayment ?? 0} awaiting payment · {pb.failedCount ?? 0} rejected
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          Inventory: {pb.inventory ? `${pb.inventory.held} booked / ${pb.inventory.total} total · ${pb.inventory.available} left` : 'not tracked'}
+                        </p>
                       </div>
                       <div className="text-right">
                         <span className="font-bold text-[#0f5973] text-sm">₹ {pb.revenue.toLocaleString('en-IN')}</span>
@@ -1138,6 +1173,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
           </div>
         )}
 
+        {/* PROJECTS & INVENTORY */}
+        {activeTab === 'projects' && token && (
+          <AdminProjectsPanel
+            token={token}
+            onUnauthorized={handleLogout}
+            onChanged={() => { fetchOverview(); fetchRegistrations(pagination.page); }}
+          />
+        )}
+
         {/* TAB 4: AUDIT TRAIL */}
         {activeTab === 'audit' && (
           <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
@@ -1193,7 +1237,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                       </span>
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Strict server-side synchronization for Pangot booking &amp; token payments.
+                      Strict server-side synchronization for Pangot and Dholera bookings &amp; token payments.
                     </p>
                   </div>
                 </div>
@@ -1309,7 +1353,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                     <span>Fixed Project &amp; Allowed Plans</span>
                   </p>
                   <p className="text-slate-600 leading-relaxed">
-                    • <strong>Project:</strong> Strictly fixed to <strong>"Pangot"</strong>.<br />
+                    • <strong>Project:</strong> Each row records its own project (<strong>Pangot</strong> or <strong>Dholera</strong>).<br />
                     • <strong>Selected Plan:</strong> Only accepts one of 4 allowed values: <code>7 L – Co-Own</code>, <code>18 L – Co-Own</code>, <code>Studio – Full Own</code>, <code>Villa – Full Own</code>. Any other value is strictly rejected.
                   </p>
                 </div>

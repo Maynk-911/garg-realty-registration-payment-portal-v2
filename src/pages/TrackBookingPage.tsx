@@ -13,6 +13,7 @@ export const TrackBookingPage: React.FC<TrackBookingPageProps> = ({ onNavigateHo
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ registration: Registration; payments: PaymentRecord[] } | null>(null);
   const [bookings, setBookings] = useState<{ registration: Registration; payments: PaymentRecord[] }[]>([]);
+  const [projectTerms, setProjectTerms] = useState<Record<string, { refund_policy?: string } | null>>({});
   const [error, setError] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
@@ -37,7 +38,8 @@ export const TrackBookingPage: React.FC<TrackBookingPageProps> = ({ onNavigateHo
         fullName: reg.full_name,
         email: reg.email,
         mobile: reg.mobile,
-        projectName: 'Pangot',
+        projectId: reg.project_id,
+        projectName: reg.project_name || 'Pangot',
         selectedPlan: reg.selected_plan,
         numberOfUnits: reg.units_count
       });
@@ -70,6 +72,7 @@ export const TrackBookingPage: React.FC<TrackBookingPageProps> = ({ onNavigateHo
         payments: data.payments || []
       }];
       setBookings(matches);
+      setProjectTerms(data.projectTerms || {});
       setResult(matches[0]);
     } catch (err: any) {
       setError(err.message || 'Registration reference not found');
@@ -172,6 +175,7 @@ export const TrackBookingPage: React.FC<TrackBookingPageProps> = ({ onNavigateHo
             <BookingFormReceipt
               registration={result.registration}
               payment={result.payments[result.payments.length - 1]}
+              refundPolicy={projectTerms[result.registration.project_id]?.refund_policy}
             />
           </div>
         )}

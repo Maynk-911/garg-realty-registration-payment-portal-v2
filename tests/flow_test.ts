@@ -20,7 +20,18 @@ const FAIL_FILE = process.env.MOCK_SHEET_FAIL_FILE || path.join(os.tmpdir(), 'ga
 const SPREADSHEET_ID = '1uw77HSMk5smqdBipFmDlj3BikxqeB4T6zXZh_7Lex8I';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-const readSheet =(): { rows: (string | number)[][]; calls: string[] } => JSON.parse(fs.readFileSync(SHEET_FILE, 'utf8'));
+// The mock sheet file may be mid-write by the server's background sync; retry briefly on a partial read
+const readSheet = (): { rows: (string | number)[][]; calls: string[] } => {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return JSON.parse(fs.readFileSync(SHEET_FILE, 'utf8'));
+    } catch (err) {
+      if (attempt >= 20) throw err;
+      const until = Date.now() + 25;
+      while (Date.now() < until) { /* short synchronous wait */ }
+    }
+  }
+};
 const rowsFor = (bookingId: string) => readSheet().rows.filter(r => r[1] === bookingId);
 const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>
   fetch(`${BASE_URL}${url}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
@@ -73,7 +84,9 @@ async function runTests() {
     // 1. Check Projects List (Strictly Pangot)
     const projRes = await fetch(`${BASE_URL}/api/projects`);
     const projData = await projRes.json();
-    assert(projRes.ok && projData.projects.length === 1 && projData.projects[0].id === 'proj_pangot', '1. Projects endpoint returns Pangot project exclusively');
+    const pangotListed = projData.projects?.find((p: any) => p.id === 'proj_pangot');
+    assert(projRes.ok && projData.projects.length === 2 && pangotListed?.booking_enabled && pangotListed.token_amount === 51000,
+      '1. Projects endpoint lists Pangot (open, ₹51,000) and Dholera only');
 
     // 2. Validate Form Rejection on Empty/Invalid Input
     const badFormRes = await post('/api/registration/submit', { fullName: '', mobile: '123' });

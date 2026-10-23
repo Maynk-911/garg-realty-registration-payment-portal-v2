@@ -29,6 +29,8 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isRetrying, setIsRetrying] = useState<boolean>(false);
+  // The booking's own project terms (refund policy etc.), sent by the server with the booking
+  const [projectTerms, setProjectTerms] = useState<Record<string, { refund_policy?: string } | null>>({});
   // Final receipt comes from the server only after admin verification
   const verified = useVerifiedReceipt(registration);
 
@@ -43,6 +45,7 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
       const data = await res.json();
       setRegistration(data.registration);
       setPayments(data.payments || []);
+      setProjectTerms(data.projectTerms || {});
     } catch (err: any) {
       setError(err.message || 'Failed to retrieve booking status');
     } finally {
@@ -75,7 +78,8 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
         fullName: registration.full_name,
         email: registration.email,
         mobile: registration.mobile,
-        projectName: 'Pangot',
+        projectId: registration.project_id,
+        projectName: registration.project_name || 'Pangot',
         selectedPlan: registration.selected_plan,
         numberOfUnits: registration.units_count
       });
@@ -157,7 +161,7 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
                     Booking Confirmed · Payment Verified
                   </h1>
                   <p className="text-sm font-semibold text-emerald-700 mt-0.5">
-                    Thank you for registering for Pangot.
+                    Thank you for registering for {registration.project_name || 'Pangot'}.
                   </p>
                 </div>
               </div>
@@ -194,7 +198,7 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                 <span className="text-[10px] uppercase font-bold text-slate-400">Project</span>
                 <p className="text-sm font-bold text-slate-900 mt-0.5">
-                  Pangot
+                  {registration.project_name || 'Pangot'}
                 </p>
               </div>
 
@@ -328,7 +332,7 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                 <span className="text-[10px] uppercase font-bold text-slate-400">Project / Plan</span>
                 <p className="text-sm font-bold text-slate-900 mt-0.5">
-                  Pangot · {registration.selected_plan || '—'} × {registration.units_count || 1}
+                  {registration.project_name || 'Pangot'} · {registration.selected_plan || '—'} × {registration.units_count || 1}
                 </p>
               </div>
 
@@ -371,6 +375,7 @@ export const PaymentStatusPage: React.FC<PaymentStatusPageProps> = ({
             registration={registration}
             payment={latestPayment}
             verified={verified}
+            refundPolicy={projectTerms[registration.project_id]?.refund_policy}
           />
         </div>
 

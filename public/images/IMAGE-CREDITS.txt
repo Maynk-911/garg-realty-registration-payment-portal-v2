@@ -1,0 +1,22 @@
+Homepage project card images — sources and licences
+=====================================================
+
+pangot-himalayan-resort.jpg
+  Original: "Beauty of pangadh.jpg" (Pangot / Pangadh, Nainital, Uttarakhand), 2016
+  Author:   raj
+  Source:   https://commons.wikimedia.org/wiki/File:Beauty_of_pangadh.jpg
+  Licence:  CC BY-SA 4.0 — https://creativecommons.org/licenses/by-sa/4.0/
+  Changes:  resized to 1600 px wide; displayed cropped by CSS (object-fit: cover)
+  Note:     genuine photograph of the Pangot area (landscape only; not a photo of the resort)
+
+dholera-smart-city.jpg
+  Original: "Seed Access Road from Vijayawada West Bypass.jpg" (Seed Access Road, Amaravati, Andhra Pradesh), 2025
+  Author:   iMahesh
+  Source:   https://commons.wikimedia.org/wiki/File:Seed_Access_Road_from_Vijayawada_West_Bypass.jpg
+  Licence:  CC BY-SA 4.0 — https://creativecommons.org/licenses/by-sa/4.0/
+  Changes:  resized to 1600 px wide; displayed cropped by CSS (object-fit: cover)
+  Note:     REPRESENTATIVE image of planned-road infrastructure — NOT a photograph of Dholera.
+            It is labelled "Representative image" on the card. Replace with authentic Dholera
+            project photography when the company has it.
+
+Both licences require the credit shown on each card (author, licence, link to source).
