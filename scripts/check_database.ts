@@ -4,8 +4,14 @@
  * It never writes anything and never prints the password.
  */
 import '../src/server/loadEnv.js';
+import dns from 'dns';
 import mysql from 'mysql2/promise';
-import { mysqlConfigFromEnv } from '../src/server/mysqlStore.js';
+import { mysqlConfigFromEnv, LATEST_SCHEMA_VERSION } from '../src/server/mysqlStore.js';
+
+// This script runs on your own computer and connects from outside Hostinger. Remote MySQL allows your IPv4 address,
+// so prefer IPv4: otherwise a host with an IPv6 address (e.g. srvNNNN.hstgr.io) is reached over IPv6 and refused.
+// Affects only this script's process, never the website.
+dns.setDefaultResultOrder('ipv4first');
 
 async function main() {
   let config;
@@ -44,12 +50,23 @@ async function main() {
     const [tables] = await conn.query<any[]>('SHOW TABLES');
     const names = tables.map(t => String(Object.values(t)[0]));
     const expected = ['projects', 'project_plans', 'admin_users', 'registrations', 'payments', 'audit_logs', 'webhook_events', 'counters', 'schema_migrations'];
+    const cpTables = ['cp_applications', 'cp_application_projects', 'cp_documents', 'cp_partners', 'cp_partner_projects', 'cp_status_history', 'cp_notifications'];
     const missing = expected.filter(t => !names.includes(t));
     if (missing.length) {
       console.log(`! Tables not created yet: ${missing.join(', ')} (the app creates them automatically on first start)`);
     } else {
-      const [[v]] = await conn.query<any[]>('SELECT MAX(version) AS v FROM schema_migrations');
-      console.log(`✓ All ${expected.length} tables present (schema version ${v.v})`);
+      const [versions] = await conn.query<any[]>('SELECT version FROM schema_migrations ORDER BY version');
+      console.log(`✓ All ${expected.length} booking tables present (schema versions applied: ${versions.map(v => v.version).join(', ')}; latest in this code: ${LATEST_SCHEMA_VERSION})`);
+      const cpMissing = cpTables.filter(t => !names.includes(t));
+      if (cpMissing.length === cpTables.length) {
+        console.log('! Channel Partner tables not created yet (migration 2 runs automatically when the new version of the app starts)');
+      } else if (cpMissing.length) {
+        console.log(`! Channel Partner tables incomplete, missing: ${cpMissing.join(', ')} (restart the app to finish migration 2)`);
+      } else {
+        const [[cp]] = await conn.query<any[]>(`SELECT (SELECT COUNT(*) FROM cp_applications) AS apps, (SELECT COUNT(*) FROM cp_partners) AS partners,
+          (SELECT COUNT(*) FROM cp_applications WHERE status = 'PENDING') AS pending`);
+        console.log(`✓ All ${cpTables.length} Channel Partner tables present · Applications: ${cp.apps} (pending ${cp.pending}) · Partners: ${cp.partners}`);
+      }
       const [[c]] = await conn.query<any[]>(`SELECT
         (SELECT COUNT(*) FROM registrations) AS bookings,
         (SELECT COUNT(*) FROM registrations WHERE project_id = 'proj_pangot') AS pangot,

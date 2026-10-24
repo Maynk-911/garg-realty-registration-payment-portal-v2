@@ -26,6 +26,7 @@ import {
 import { Registration, PaymentRecord, AuditLog } from '../types.js';
 import { getPaymentStatusLabel, PANGOT_ID, DHOLERA_ID } from '../bookingOptions.js';
 import { AdminProjectsPanel } from '../components/AdminProjectsPanel.js';
+import { AdminCpPanel } from '../components/AdminCpPanel.js';
 import { googleSignIn, initAuth, logoutGoogle, getAccessToken } from '../lib/googleAuth.js';
 
 interface AdminDashboardProps {
@@ -52,7 +53,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
   const [loginLoading, setLoginLoading] = useState(false);
 
   // Dashboard Data State
-  const [activeTab, setActiveTab] = useState<'overview' | 'registrations' | 'projects' | 'webhooks' | 'audit' | 'sheets'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'registrations' | 'projects' | 'cp' | 'webhooks' | 'audit' | 'sheets'>('overview');
   const [metrics, setMetrics] = useState<any>(null);
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 15, totalPages: 1 });
@@ -692,6 +693,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
           >
             Projects &amp; Inventory
           </button>
+          <button
+            onClick={() => setActiveTab('cp')}
+            className={`py-2.5 border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'cp' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            CP / Broker Management
+          </button>
         </div>
       </header>
 
@@ -1180,6 +1189,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
             onUnauthorized={handleLogout}
             onChanged={() => { fetchOverview(); fetchRegistrations(pagination.page); }}
           />
+        )}
+
+        {/* CHANNEL PARTNER / BROKER ONBOARDING (separate from customer bookings) */}
+        {activeTab === 'cp' && token && (
+          <AdminCpPanel token={token} adminRole={adminUser?.role} onUnauthorized={handleLogout} />
         )}
 
         {/* TAB 4: AUDIT TRAIL */}

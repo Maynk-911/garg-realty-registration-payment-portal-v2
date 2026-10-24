@@ -11,6 +11,9 @@ import { emailService } from './src/server/emailService.js';
 import { Registration, PaymentStatus, RegistrationStatus, PaymentRecord, Project, OwnershipPlan } from './src/types.js';
 import { googleSheetsService, formatRegistrationToRow, GOOGLE_SHEET_COLUMNS, ALLOWED_PLANS, loadSheetsCredentials } from './src/server/googleSheetsService.js';
 import { normalizeUnitOption, getPaymentStatusLabel, PANGOT_ID, DHOLERA_ID, PUBLIC_PROJECT_IDS, PAYMENT_QR_SRC, PANGOT_PAYMENT_MODE } from './src/bookingOptions.js';
+import { toCsv } from './src/server/csv.js';
+import { registerCpRoutes } from './src/server/cpRoutes.js';
+import { cpAwareBodyParser } from './src/server/cpGuard.js';
 
 const app = express();
 // Express 4 does not catch errors thrown by async handlers: forward them to the error handler instead of
@@ -56,14 +59,22 @@ const revokedAdminTokens = new Map<string, number>();
 // Tokens are bound to this server run, so a restart ends every session (revocations never come back to life)
 const ADMIN_SESSION_EPOCH = crypto.randomUUID();
 
-// Capture raw body for webhook verification
-app.use(express.json({
+// Capture raw body for webhook verification.
+// inflate: false — compressed (Content-Encoding) request bodies are refused with 415 before any decompression starts.
+// No client of this app sends them; it also keeps the body-parser decompression path (GHSA-27r3-jxmh-p828) unreachable.
+const jsonBodyParser = express.json({
   verify: (req: any, _res, buf) => {
     req.rawBody = buf;
   },
-  limit: '2mb'
-}));
-app.use(express.urlencoded({ extended: true }));
+  limit: '2mb',
+  inflate: false
+});
+// Channel Partner applications carry their documents, so that one route is throttled first and then read with a larger limit.
+// Express matches routes ignoring letter case and a trailing slash, so the path is compared the same way
+// (/api/cp/applications/, /API/CP/APPLICATIONS ... are all throttled). The route itself also refuses any request
+// that did not pass this guard.
+app.use(cpAwareBodyParser(jsonBodyParser));
+app.use(express.urlencoded({ extended: true, inflate: false }));
 
 // Security & CORS middleware
 app.use((req, res, next) => {
@@ -1443,15 +1454,6 @@ app.get('/api/admin/export-csv', authenticateAdmin, async (req: Request, res: Re
     if (r.payment_status === 'PENDING' && r.utr_number) return 'Awaiting admin review';
     return '';
   };
-  const escapeCsv = (val: unknown) => {
-    let s = String(val ?? '');
-    // Long digit strings (mobile, UTR) stay text in Excel instead of turning into 9.19E+11
-    if (/^\+?\d{10,}$/.test(s)) return `="${s}"`;
-    // Neutralise spreadsheet formulas in free-text fields
-    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
-    return `"${s.replace(/"/g, '""')}"`;
-  };
-
   const rows = list.map(r => [
     r.registration_number,
     r.full_name,
@@ -1474,10 +1476,9 @@ app.get('/api/admin/export-csv', authenticateAdmin, async (req: Request, res: Re
     istDate(r.payment_submitted_at),
     istDate(r.payment_verified_at),
     verificationResult(r)
-  ].map(escapeCsv).join(','));
+  ]);
 
-  // UTF-8 BOM + CRLF so Excel opens it with the ₹/– characters intact
-  const csvContent = '﻿' + [headers.map(escapeCsv).join(','), ...rows].join('\r\n') + '\r\n';
+  const csvContent = toCsv(headers, rows);
   const filename = `garg-realty-bookings-${new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' })}.csv`;
 
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -1585,6 +1586,11 @@ app.get('/api/admin/google-sheets/preview-row/:id', authenticateAdmin, async (re
 });
 
 // -------------------------------------------------------------
+// CHANNEL PARTNER (CP) / BROKER ONBOARDING (src/server/cpRoutes.ts)
+// -------------------------------------------------------------
+registerCpRoutes(app, { authenticateAdmin, sendFailure });
+
+// -------------------------------------------------------------
 // VITE MIDDLEWARE (DEV) & STATIC (PROD)
 // -------------------------------------------------------------
 async function setupServer() {
@@ -1616,6 +1622,16 @@ async function setupServer() {
     }
     if (err instanceof DuplicateRecordError) {
       return res.status(409).json({ error: 'This record already exists.' });
+    }
+    // Request body problems reported by the JSON parser
+    if (err?.type === 'entity.too.large') {
+      return res.status(413).json({ error: 'The upload is too large. Please use smaller files.' });
+    }
+    if (err?.type === 'entity.parse.failed') {
+      return res.status(400).json({ error: 'The request could not be read.' });
+    }
+    if (err?.type === 'encoding.unsupported' || err?.type === 'charset.unsupported') {
+      return res.status(415).json({ error: 'Unsupported request encoding. Please send the request without compression.' });
     }
     console.error(`[Server] ${req.method} ${req.path}:`, err?.message || err);
     res.status(500).json({ error: 'Something went wrong. Please try again.' });

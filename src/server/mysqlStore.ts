@@ -3,11 +3,20 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import mysql, { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
-import { Project, Registration, PaymentRecord, WebhookEvent, AuditLog, OwnershipPlan } from '../types.js';
+import {
+  Project, Registration, PaymentRecord, WebhookEvent, AuditLog, OwnershipPlan,
+  CpApplication, CpDocument, CpDocumentMeta, CpPartner, CpStatusHistoryEntry, CpNotification
+} from '../types.js';
 import { PANGOT_ID, PUBLIC_PROJECT_IDS } from '../bookingOptions.js';
 import { APP_ROOT } from './loadEnv.js';
-import { Store, AdminRecord, RegistrationFilter, DuplicateRecordError, DatabaseUnavailableError } from './store.js';
+import { Store, AdminRecord, RegistrationFilter, CpApplicationFilter, DuplicateRecordError, DatabaseUnavailableError } from './store.js';
 import { SEED_PROJECTS, withPangotFixedConfig, configuredAdmin } from './seed.js';
+
+/** Schema migrations after the base schema (database/schema.sql = version 1). Add new ones at the end. */
+const MIGRATIONS = [
+  { version: 2, file: 'migrations/002_cp_onboarding.sql' }
+] as const;
+export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
 
 export interface MySqlConfig {
   host: string;
@@ -226,13 +235,29 @@ export class MySqlStore implements Store {
     if (this.pool && !this.conn) await this.pool.end();
   }
 
-  private async migrate() {
-    const sql = fs.readFileSync(path.join(APP_ROOT, 'database', 'schema.sql'), 'utf-8');
+  private async runSqlFile(relativePath: string) {
+    const sql = fs.readFileSync(path.join(APP_ROOT, 'database', relativePath), 'utf-8');
     const statements = sql
       .split('\n').filter(line => !line.trim().startsWith('--')).join('\n')
       .split(/;\s*(?:\n|$)/).map(s => s.trim()).filter(Boolean);
     for (const statement of statements) await this.q(statement);
+  }
+
+  /**
+   * Version 1 (the booking schema) is idempotent and checked on every start. Later versions are applied once, in
+   * order, and recorded in schema_migrations. They only add tables, and every statement is idempotent, so a start
+   * interrupted half-way simply re-applies the migration next time.
+   */
+  private async migrate() {
+    await this.runSqlFile('schema.sql');
     await this.q('INSERT IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)', [toDbTime(new Date().toISOString())]);
+    const applied = new Set((await this.q('SELECT version FROM schema_migrations')).map(r => Number(r.version)));
+    for (const migration of MIGRATIONS) {
+      if (applied.has(migration.version)) continue;
+      await this.runSqlFile(migration.file);
+      await this.q('INSERT IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)', [migration.version, toDbTime(new Date().toISOString())]);
+      console.log(`[Database] Applied migration ${migration.version} (${migration.file})`);
+    }
   }
 
   /** Only verified configuration: the two projects and the admin from the environment. Never bookings or payments. */
@@ -466,11 +491,13 @@ export class MySqlStore implements Store {
 
   async listAuditLogs(limit: number = 50) {
     const rows = await this.q('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?', [Math.max(1, Math.min(1000, limit))]);
-    return rows.map(r => ({
-      id: r.id, admin_id: r.admin_id, action: r.action, entity_type: r.entity_type, entity_id: r.entity_id,
-      old_value: fromJson(r.old_value, undefined), new_value: fromJson(r.new_value, undefined),
-      ip_address: opt(r.ip_address), timestamp: fromDbTime(r.created_at)!
-    } as AuditLog));
+    return rows.map(rowToAuditLog);
+  }
+
+  async listAuditLogsForEntity(entityType: string, entityId: string, limit: number = 100) {
+    const rows = await this.q('SELECT * FROM audit_logs WHERE entity_type = ? AND entity_id = ? ORDER BY created_at DESC LIMIT ?',
+      [entityType, entityId, Math.max(1, Math.min(1000, limit))]);
+    return rows.map(rowToAuditLog);
   }
 
   // ---------- admins ----------
@@ -479,4 +506,255 @@ export class MySqlStore implements Store {
     const r = rows[0];
     return r ? ({ id: r.id, email: r.email, name: r.name, role: r.role, passwordHash: r.password_hash } as AdminRecord) : null;
   }
+
+  // ---------- Channel Partner onboarding ----------
+  private async nextCounter(name: string) {
+    const result = await this.q<ResultSetHeader>('UPDATE counters SET value = LAST_INSERT_ID(value + 1) WHERE name = ?', [name]);
+    if (!result.affectedRows) throw new Error(`Counter ${name} missing`);
+    return result.insertId;
+  }
+
+  async generateCpApplicationRef() {
+    const seq = await this.nextCounter('cp_application_seq');
+    const date = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' }).replace(/-/g, '');
+    return `CP-GRG-${date}-${String(seq).padStart(4, '0')}`;
+  }
+
+  async generateCpPartnerId() {
+    return `GRG-CP-${String(await this.nextCounter('cp_partner_seq')).padStart(4, '0')}`;
+  }
+
+  private async cpProjectIds(applicationIds: string[]) {
+    if (!applicationIds.length) return new Map<string, string[]>();
+    const rows = await this.q(
+      `SELECT application_id, project_id FROM cp_application_projects WHERE application_id IN (${applicationIds.map(() => '?').join(', ')}) ORDER BY project_id`,
+      applicationIds
+    );
+    const map = new Map<string, string[]>();
+    for (const r of rows) map.set(r.application_id, [...(map.get(r.application_id) || []), r.project_id]);
+    return map;
+  }
+
+  private async cpApplicationsFromRows(rows: RowDataPacket[]) {
+    const projects = await this.cpProjectIds(rows.map(r => r.id));
+    return rows.map(r => rowToCpApplication(r, projects.get(r.id) || []));
+  }
+
+  async createCpApplication(application: CpApplication, documents: CpDocument[]) {
+    await this.transaction(async tx => {
+      const self = tx as MySqlStore;
+      await self.q(
+        `INSERT INTO cp_applications (${CP_APP_COLUMNS.join(', ')}) VALUES (${CP_APP_COLUMNS.map(() => '?').join(', ')})`,
+        cpApplicationToRow(application)
+      );
+      for (const projectId of application.project_ids) {
+        await self.q('INSERT INTO cp_application_projects (application_id, project_id) VALUES (?, ?)', [application.id, projectId]);
+      }
+      for (const d of documents) {
+        await self.q(
+          'INSERT INTO cp_documents (id, application_id, doc_type, original_name, mime_type, size_bytes, sha256, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [d.id, application.id, d.doc_type, d.original_name, d.mime_type, d.size_bytes, d.sha256, d.content, toDbTime(d.created_at)]
+        );
+      }
+    });
+  }
+
+  async updateCpApplication(a: CpApplication) {
+    await this.q(
+      `UPDATE cp_applications SET status = ?, info_request_message = ?, decision_reason = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [a.status, a.info_request_message ?? null, a.decision_reason ?? null, a.reviewed_by ?? null, toDbTime(a.reviewed_at), toDbTime(a.updated_at), a.id]
+    );
+  }
+
+  async getCpApplication(id: string) {
+    return (await this.cpApplicationsFromRows(await this.q('SELECT * FROM cp_applications WHERE id = ?', [id])))[0] || null;
+  }
+
+  async getCpApplicationForUpdate(id: string) {
+    const rows = await this.q(`SELECT * FROM cp_applications WHERE id = ?${this.conn ? ' FOR UPDATE' : ''}`, [id]);
+    return (await this.cpApplicationsFromRows(rows))[0] || null;
+  }
+
+  async getCpApplicationBySubmissionId(clientSubmissionId: string) {
+    const rows = await this.q('SELECT * FROM cp_applications WHERE client_submission_id = ? LIMIT 1', [clientSubmissionId]);
+    return (await this.cpApplicationsFromRows(rows))[0] || null;
+  }
+
+  async findActiveCpApplication(mobile: string, email?: string) {
+    const rows = email
+      ? await this.q('SELECT * FROM cp_applications WHERE active_mobile = ? OR active_email = ? LIMIT 1', [mobile, email])
+      : await this.q('SELECT * FROM cp_applications WHERE active_mobile = ? LIMIT 1', [mobile]);
+    return (await this.cpApplicationsFromRows(rows))[0] || null;
+  }
+
+  async listCpApplications(filter: CpApplicationFilter) {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    const search = filter.search?.trim();
+    if (search) {
+      const like = `%${likeEscape(search)}%`;
+      const digits = search.replace(/\D/g, '');
+      const clauses = ['a.application_ref LIKE ?', 'a.full_name LIKE ?', 'a.company_name LIKE ?', 'a.email LIKE ?',
+        'EXISTS (SELECT 1 FROM cp_partners p WHERE p.application_id = a.id AND p.cp_id LIKE ?)'];
+      params.push(like, like, like, like, like);
+      // Mobile numbers are stored as +91XXXXXXXXXX: match on the last digits typed
+      if (digits.length >= 4) { clauses.push('a.mobile LIKE ?'); params.push(`%${digits.slice(-10)}%`); }
+      where.push(`(${clauses.join(' OR ')})`);
+    }
+    if (filter.status && filter.status !== 'all') { where.push('a.status = ?'); params.push(filter.status); }
+    if (filter.projectId && filter.projectId !== 'all') {
+      where.push('EXISTS (SELECT 1 FROM cp_application_projects ap WHERE ap.application_id = a.id AND ap.project_id = ?)');
+      params.push(filter.projectId);
+    }
+    if (filter.createdFrom) { where.push('a.created_at >= ?'); params.push(toDbTime(filter.createdFrom)); }
+    if (filter.createdTo) { where.push('a.created_at <= ?'); params.push(toDbTime(filter.createdTo)); }
+    const whereSql = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+    const sortColumn = { created_at: 'a.created_at', full_name: 'a.full_name', status: 'a.status', city: 'a.city' }[filter.sort || 'created_at'] || 'a.created_at';
+    const direction = filter.direction === 'asc' ? 'ASC' : 'DESC';
+    const [countRow] = await this.q(`SELECT COUNT(*) AS total FROM cp_applications a${whereSql}`, params);
+    let sql = `SELECT a.* FROM cp_applications a${whereSql} ORDER BY ${sortColumn} ${direction}, a.id ${direction}`;
+    const pageParams = [...params];
+    if (filter.page && filter.pageSize) {
+      sql += ' LIMIT ? OFFSET ?';
+      pageParams.push(filter.pageSize, (filter.page - 1) * filter.pageSize);
+    }
+    return { items: await this.cpApplicationsFromRows(await this.q(sql, pageParams)), total: num(countRow?.total) };
+  }
+
+  async countCpApplicationsByStatus() {
+    const rows = await this.q('SELECT status, COUNT(*) AS n FROM cp_applications GROUP BY status');
+    return Object.fromEntries(rows.map(r => [r.status, num(r.n)]));
+  }
+
+  async listCpDocuments(applicationId: string) {
+    const rows = await this.q(
+      'SELECT id, application_id, doc_type, original_name, mime_type, size_bytes, sha256, created_at FROM cp_documents WHERE application_id = ? ORDER BY created_at, doc_type',
+      [applicationId]
+    );
+    return rows.map(r => rowToCpDocumentMeta(r));
+  }
+
+  async getCpDocument(applicationId: string, documentId: string) {
+    const rows = await this.q('SELECT * FROM cp_documents WHERE id = ? AND application_id = ?', [documentId, applicationId]);
+    const r = rows[0];
+    return r ? { ...rowToCpDocumentMeta(r), content: Buffer.from(r.content) } : null;
+  }
+
+  async addCpStatusHistory(e: CpStatusHistoryEntry) {
+    await this.q(
+      'INSERT INTO cp_status_history (id, application_id, from_status, to_status, admin_id, admin_email, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [e.id, e.application_id, e.from_status, e.to_status, e.admin_id, e.admin_email, e.note ?? null, toDbTime(e.created_at)]
+    );
+  }
+
+  async listCpStatusHistory(applicationId: string) {
+    const rows = await this.q('SELECT * FROM cp_status_history WHERE application_id = ? ORDER BY created_at ASC, id ASC', [applicationId]);
+    return rows.map(r => ({
+      id: r.id, application_id: r.application_id, from_status: r.from_status ?? null, to_status: r.to_status,
+      admin_id: r.admin_id ?? null, admin_email: r.admin_email ?? null, note: opt(r.note), created_at: fromDbTime(r.created_at)!
+    } as CpStatusHistoryEntry));
+  }
+
+  async saveCpPartner(p: CpPartner) {
+    await this.transaction(async tx => {
+      const self = tx as MySqlStore;
+      await self.saveById('cp_partners', [
+        'id', 'cp_id', 'application_id', 'application_ref', 'full_name', 'mobile', 'email', 'company_name', 'partner_type', 'status',
+        'approved_at', 'approved_by', 'suspended_at', 'suspended_by', 'suspension_reason', 'created_at', 'updated_at'
+      ], [
+        p.id, p.cp_id, p.application_id, p.application_ref, p.full_name, p.mobile, p.email ?? null, p.company_name ?? null, p.partner_type, p.status,
+        toDbTime(p.approved_at), p.approved_by, toDbTime(p.suspended_at), p.suspended_by ?? null, p.suspension_reason ?? null,
+        toDbTime(p.created_at), toDbTime(p.updated_at)
+      ]);
+      const keep = p.approved_project_ids;
+      await self.q(
+        `DELETE FROM cp_partner_projects WHERE partner_id = ?${keep.length ? ` AND project_id NOT IN (${keep.map(() => '?').join(', ')})` : ''}`,
+        [p.id, ...keep]
+      );
+      for (const projectId of keep) await self.q('INSERT IGNORE INTO cp_partner_projects (partner_id, project_id) VALUES (?, ?)', [p.id, projectId]);
+    });
+  }
+
+  async getCpPartnerByApplication(applicationId: string) {
+    const rows = await this.q('SELECT * FROM cp_partners WHERE application_id = ?', [applicationId]);
+    const r = rows[0];
+    if (!r) return null;
+    const projects = await this.q('SELECT project_id FROM cp_partner_projects WHERE partner_id = ? ORDER BY project_id', [r.id]);
+    return {
+      id: r.id, cp_id: r.cp_id, application_id: r.application_id, application_ref: r.application_ref, full_name: r.full_name,
+      mobile: r.mobile, email: opt(r.email), company_name: opt(r.company_name), partner_type: r.partner_type, status: r.status,
+      approved_project_ids: projects.map(x => x.project_id), approved_at: fromDbTime(r.approved_at)!, approved_by: r.approved_by,
+      suspended_at: fromDbTime(r.suspended_at), suspended_by: opt(r.suspended_by), suspension_reason: opt(r.suspension_reason),
+      created_at: fromDbTime(r.created_at)!, updated_at: fromDbTime(r.updated_at)!
+    } as CpPartner;
+  }
+
+  async saveCpNotification(n: CpNotification) {
+    await this.saveById('cp_notifications', [
+      'id', 'application_id', 'event', 'channel', 'recipient', 'status', 'attempts', 'last_error', 'message', 'created_at', 'updated_at', 'sent_at'
+    ], [
+      n.id, n.application_id, n.event, n.channel, n.recipient ?? null, n.status, n.attempts, n.last_error ? n.last_error.slice(0, 500) : null,
+      n.message ?? null, toDbTime(n.created_at), toDbTime(n.updated_at), toDbTime(n.sent_at)
+    ]);
+  }
+
+  async getCpNotification(id: string) {
+    const rows = await this.q('SELECT * FROM cp_notifications WHERE id = ?', [id]);
+    return rows[0] ? rowToCpNotification(rows[0]) : null;
+  }
+
+  async listCpNotifications(applicationId: string) {
+    const rows = await this.q('SELECT * FROM cp_notifications WHERE application_id = ? ORDER BY created_at ASC, id ASC', [applicationId]);
+    return rows.map(rowToCpNotification);
+  }
 }
+
+const rowToAuditLog = (r: RowDataPacket): AuditLog => ({
+  id: r.id, admin_id: r.admin_id, action: r.action, entity_type: r.entity_type, entity_id: r.entity_id,
+  old_value: fromJson(r.old_value, undefined), new_value: fromJson(r.new_value, undefined),
+  ip_address: opt(r.ip_address), timestamp: fromDbTime(r.created_at)!
+});
+
+// ---------- CP row mappings ----------
+const CP_APP_COLUMNS = [
+  'id', 'application_ref', 'status', 'client_submission_id', 'full_name', 'mobile', 'whatsapp', 'email', 'date_of_birth',
+  'partner_type', 'company_name', 'years_experience', 'sales_agents', 'existing_business', 'website', 'linkedin',
+  'country', 'state', 'city', 'pincode', 'address', 'pan_number', 'gst_number', 'rera_number', 'rera_state', 'business_registration_number',
+  'expected_monthly_leads', 'preferred_locations', 'previous_experience', 'heard_from', 'referral_code', 'comments',
+  'declarations_accepted_at', 'declaration_version', 'ip_address', 'user_agent',
+  'info_request_message', 'decision_reason', 'reviewed_by', 'reviewed_at', 'created_at', 'updated_at'
+] as const;
+const CP_APP_TIME_COLUMNS = new Set(['declarations_accepted_at', 'reviewed_at', 'created_at', 'updated_at']);
+const CP_APP_NUMBER_COLUMNS = new Set(['years_experience', 'sales_agents', 'expected_monthly_leads']);
+
+function cpApplicationToRow(a: CpApplication): unknown[] {
+  return CP_APP_COLUMNS.map(col => {
+    const v = (a as any)[col];
+    if (CP_APP_TIME_COLUMNS.has(col)) return toDbTime(v);
+    return v === undefined || v === '' ? null : v;
+  });
+}
+
+function rowToCpApplication(row: RowDataPacket, projectIds: string[]): CpApplication {
+  const a: any = { project_ids: projectIds };
+  for (const col of CP_APP_COLUMNS) {
+    const v = row[col];
+    if (v === null || v === undefined) continue;
+    if (CP_APP_TIME_COLUMNS.has(col)) a[col] = fromDbTime(v);
+    else if (CP_APP_NUMBER_COLUMNS.has(col)) a[col] = num(v);
+    else a[col] = String(v);
+  }
+  return a as CpApplication;
+}
+
+const rowToCpDocumentMeta = (r: RowDataPacket): CpDocumentMeta => ({
+  id: r.id, application_id: r.application_id, doc_type: r.doc_type, original_name: r.original_name, mime_type: r.mime_type,
+  size_bytes: num(r.size_bytes), sha256: r.sha256, created_at: fromDbTime(r.created_at)!
+});
+
+const rowToCpNotification = (r: RowDataPacket): CpNotification => ({
+  id: r.id, application_id: r.application_id, event: r.event, channel: r.channel, recipient: opt(r.recipient), status: r.status,
+  attempts: num(r.attempts), last_error: opt(r.last_error), message: opt(r.message),
+  created_at: fromDbTime(r.created_at)!, updated_at: fromDbTime(r.updated_at)!, sent_at: fromDbTime(r.sent_at)
+});

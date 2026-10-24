@@ -1,7 +1,7 @@
 import React from 'react';
 import { Project } from '../types.js';
 import { PANGOT_ID, DHOLERA_ID } from '../bookingOptions.js';
-import { ArrowRight, MapPin, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowRight, Handshake, MapPin, ShieldCheck, Sparkles } from 'lucide-react';
 
 interface ProjectSelectionProps {
   projects: Project[];
@@ -150,6 +150,26 @@ export const ProjectSelection: React.FC<ProjectSelectionProps> = ({ projects }) 
               </article>
             );
           })}
+        </div>
+
+        {/* Channel Partner / Broker onboarding entry point */}
+        <div className="max-w-5xl mx-auto mt-8 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6">
+          <div className="w-11 h-11 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0">
+            <Handshake className="w-5 h-5 text-[#b87e2b]" aria-hidden="true" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-lg font-extrabold text-[#0f5973] font-['Playfair_Display']">Are you a broker or channel partner?</h2>
+            <p className="mt-1 text-sm text-slate-600 leading-relaxed">
+              Real estate brokers, consultants and channel partner firms can apply to work with Garg Realty Group. Applications are reviewed by our team.
+            </p>
+          </div>
+          <a
+            href="/cp-registration"
+            className="w-full sm:w-auto px-6 py-3 bg-[#0f5973] hover:bg-[#0c4c62] text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow-sm transition-colors flex items-center justify-center gap-2 shrink-0"
+          >
+            <span>Become a Channel Partner</span>
+            <ArrowRight className="w-4 h-4" aria-hidden="true" />
+          </a>
         </div>
       </section>
     </div>

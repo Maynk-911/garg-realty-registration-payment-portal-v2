@@ -2,10 +2,13 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { Project, Registration, PaymentRecord, WebhookEvent, AuditLog } from '../types.js';
+import {
+  Project, Registration, PaymentRecord, WebhookEvent, AuditLog,
+  CpApplication, CpDocument, CpDocumentMeta, CpPartner, CpStatusHistoryEntry, CpNotification
+} from '../types.js';
 import { PANGOT_ID, DHOLERA_ID, PUBLIC_PROJECT_IDS } from '../bookingOptions.js';
 import { APP_ROOT } from './loadEnv.js';
-import { Store, AdminRecord, RegistrationFilter, DuplicateRecordError } from './store.js';
+import { Store, AdminRecord, RegistrationFilter, CpApplicationFilter, DuplicateRecordError } from './store.js';
 import { SEED_PROJECTS, DHOLERA_SEED, withPangotFixedConfig, configuredAdmin } from './seed.js';
 
 interface DatabaseSchema {
@@ -15,8 +18,17 @@ interface DatabaseSchema {
   webhook_events: Record<string, WebhookEvent>;
   audit_logs: Record<string, AuditLog>;
   admin_users: Record<string, AdminRecord>;
-  counters: { registration_seq: number };
+  counters: { registration_seq: number; cp_application_seq?: number; cp_partner_seq?: number };
+  // Channel Partner onboarding (documents are kept base64-encoded in this development file)
+  cp_applications?: Record<string, CpApplication>;
+  cp_documents?: Record<string, CpDocumentMeta & { content_base64: string }>;
+  cp_partners?: Record<string, CpPartner>;
+  cp_status_history?: Record<string, CpStatusHistoryEntry>;
+  cp_notifications?: Record<string, CpNotification>;
 }
+
+type CpTables = Required<Pick<DatabaseSchema, 'cp_applications' | 'cp_documents' | 'cp_partners' | 'cp_status_history' | 'cp_notifications'>>;
+const CP_OPEN = (a: CpApplication) => a.status !== 'REJECTED';
 
 // DATA_DIR may be absolute or relative to the project root
 const DATA_DIR = path.resolve(APP_ROOT, process.env.DATA_DIR || 'data');
@@ -213,9 +225,149 @@ export class JsonStore implements Store {
   async listAuditLogs(limit: number = 50) {
     return clone(Object.values(this.data.audit_logs).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, limit));
   }
+  async listAuditLogsForEntity(entityType: string, entityId: string, limit: number = 100) {
+    return clone(Object.values(this.data.audit_logs).filter(l => l.entity_type === entityType && l.entity_id === entityId)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, limit));
+  }
 
   // --- Admins ---
   async getAdminByEmail(email: string) {
     return clone(Object.values(this.data.admin_users).find(a => a.email.toLowerCase() === email.toLowerCase()) || null);
+  }
+
+  // --- Channel Partner onboarding (same rules as the MySQL tables and unique keys) ---
+  private get cp(): CpTables {
+    this.data.cp_applications ||= {};
+    this.data.cp_documents ||= {};
+    this.data.cp_partners ||= {};
+    this.data.cp_status_history ||= {};
+    this.data.cp_notifications ||= {};
+    return this.data as CpTables & DatabaseSchema;
+  }
+
+  async generateCpApplicationRef() {
+    let seq = 0;
+    this.mutate(() => { seq = this.data.counters.cp_application_seq = (this.data.counters.cp_application_seq || 0) + 1; });
+    const date = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' }).replace(/-/g, '');
+    return `CP-GRG-${date}-${String(seq).padStart(4, '0')}`;
+  }
+
+  async generateCpPartnerId() {
+    let seq = 0;
+    this.mutate(() => { seq = this.data.counters.cp_partner_seq = (this.data.counters.cp_partner_seq || 0) + 1; });
+    return `GRG-CP-${String(seq).padStart(4, '0')}`;
+  }
+
+  async createCpApplication(application: CpApplication, documents: CpDocument[]) {
+    const all = Object.values(this.cp.cp_applications);
+    if (all.some(a => a.id === application.id || a.application_ref === application.application_ref)) {
+      throw new DuplicateRecordError('Duplicate application reference', 'uq_cp_applications_ref');
+    }
+    if (application.client_submission_id && all.some(a => a.client_submission_id === application.client_submission_id)) {
+      throw new DuplicateRecordError('Duplicate submission', 'uq_cp_applications_submission');
+    }
+    if (CP_OPEN(application)) {
+      if (all.some(a => CP_OPEN(a) && a.mobile === application.mobile)) throw new DuplicateRecordError('Duplicate application', 'uq_cp_applications_active_mobile');
+      if (application.email && all.some(a => CP_OPEN(a) && a.email === application.email)) throw new DuplicateRecordError('Duplicate application', 'uq_cp_applications_active_email');
+    }
+    this.mutate(() => {
+      this.cp.cp_applications[application.id] = clone(application);
+      for (const d of documents) {
+        const { content, ...meta } = d;
+        this.cp.cp_documents[d.id] = { ...meta, application_id: application.id, content_base64: content.toString('base64') };
+      }
+    });
+  }
+
+  async updateCpApplication(a: CpApplication) {
+    this.mutate(() => {
+      const stored = this.cp.cp_applications[a.id];
+      if (!stored) return;
+      Object.assign(stored, {
+        status: a.status, info_request_message: a.info_request_message, decision_reason: a.decision_reason,
+        reviewed_by: a.reviewed_by, reviewed_at: a.reviewed_at, updated_at: a.updated_at
+      });
+    });
+  }
+
+  async getCpApplication(id: string) { return clone(this.cp.cp_applications[id] || null); }
+  async getCpApplicationForUpdate(id: string) { return this.getCpApplication(id); }
+  async getCpApplicationBySubmissionId(clientSubmissionId: string) {
+    return clone(Object.values(this.cp.cp_applications).find(a => a.client_submission_id === clientSubmissionId) || null);
+  }
+
+  async findActiveCpApplication(mobile: string, email?: string) {
+    return clone(Object.values(this.cp.cp_applications).find(a => CP_OPEN(a) && (a.mobile === mobile || (email && a.email === email))) || null);
+  }
+
+  async listCpApplications(filter: CpApplicationFilter) {
+    let list = Object.values(this.cp.cp_applications);
+    const search = filter.search?.trim().toLowerCase();
+    if (search) {
+      const digits = search.replace(/\D/g, '');
+      const cpIds = new Map(Object.values(this.cp.cp_partners).map(p => [p.application_id, p.cp_id.toLowerCase()]));
+      list = list.filter(a =>
+        a.application_ref.toLowerCase().includes(search) || a.full_name.toLowerCase().includes(search) ||
+        (a.company_name || '').toLowerCase().includes(search) || (a.email || '').includes(search) ||
+        (cpIds.get(a.id) || '').includes(search) || (digits.length >= 4 && a.mobile.includes(digits.slice(-10))));
+    }
+    if (filter.status && filter.status !== 'all') list = list.filter(a => a.status === filter.status);
+    if (filter.projectId && filter.projectId !== 'all') list = list.filter(a => a.project_ids.includes(filter.projectId!));
+    if (filter.createdFrom) list = list.filter(a => a.created_at >= filter.createdFrom!);
+    if (filter.createdTo) list = list.filter(a => a.created_at <= filter.createdTo!);
+    const key = filter.sort || 'created_at';
+    const dir = filter.direction === 'asc' ? 1 : -1;
+    list.sort((x, y) => (String(x[key]).localeCompare(String(y[key])) || x.id.localeCompare(y.id)) * dir);
+    const total = list.length;
+    if (filter.page && filter.pageSize) list = list.slice((filter.page - 1) * filter.pageSize, filter.page * filter.pageSize);
+    return { items: clone(list), total };
+  }
+
+  async countCpApplicationsByStatus() {
+    const counts: Record<string, number> = {};
+    for (const a of Object.values(this.cp.cp_applications)) counts[a.status] = (counts[a.status] || 0) + 1;
+    return counts;
+  }
+
+  async listCpDocuments(applicationId: string) {
+    return Object.values(this.cp.cp_documents).filter(d => d.application_id === applicationId)
+      .map(({ content_base64, ...meta }) => clone(meta));
+  }
+
+  async getCpDocument(applicationId: string, documentId: string) {
+    const d = this.cp.cp_documents[documentId];
+    if (!d || d.application_id !== applicationId) return null;
+    const { content_base64, ...meta } = d;
+    return { ...clone(meta), content: Buffer.from(content_base64, 'base64') };
+  }
+
+  async addCpStatusHistory(entry: CpStatusHistoryEntry) {
+    this.mutate(() => { this.cp.cp_status_history[entry.id] = clone(entry); });
+  }
+
+  async listCpStatusHistory(applicationId: string) {
+    return clone(Object.values(this.cp.cp_status_history).filter(e => e.application_id === applicationId)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)));
+  }
+
+  async saveCpPartner(partner: CpPartner) {
+    const clash = Object.values(this.cp.cp_partners).find(p => p.id !== partner.id && (p.cp_id === partner.cp_id || p.application_id === partner.application_id));
+    if (clash) throw new DuplicateRecordError('Duplicate partner record', clash.cp_id === partner.cp_id ? 'uq_cp_partners_cp_id' : 'uq_cp_partners_application');
+    this.mutate(() => { this.cp.cp_partners[partner.id] = clone(partner); });
+  }
+
+  async getCpPartnerByApplication(applicationId: string) {
+    return clone(Object.values(this.cp.cp_partners).find(p => p.application_id === applicationId) || null);
+  }
+
+  async saveCpNotification(notification: CpNotification) {
+    this.mutate(() => { this.cp.cp_notifications[notification.id] = clone(notification); });
+  }
+
+  async getCpNotification(id: string) { return clone(this.cp.cp_notifications[id] || null); }
+
+  async listCpNotifications(applicationId: string) {
+    return clone(Object.values(this.cp.cp_notifications).filter(n => n.application_id === applicationId)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)));
   }
 }

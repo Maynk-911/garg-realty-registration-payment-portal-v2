@@ -23,8 +23,11 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
         </div>
 
         {/* Legal & Policy Links */}
-        <div className="flex items-center gap-6 text-xs text-slate-500">
-          <button 
+        <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-slate-500">
+          <a href="/cp-registration" className="font-semibold text-[#0f5973] hover:text-slate-900 transition-colors">
+            Channel Partner Registration
+          </a>
+          <button
             onClick={() => onNavigate('policy_terms')}
             className="hover:text-slate-900 transition-colors cursor-pointer"
           >

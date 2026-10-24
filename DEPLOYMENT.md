@@ -104,7 +104,64 @@ It is read-only: it prints the server version, whether all 9 tables exist, and b
 - `npm run db:cleanup-test` — lists bookings with `@example.com` e-mails (test data only);
   `npm run db:cleanup-test -- --delete` removes exactly those.
 
+## 8. Channel Partner (CP) / Broker onboarding
+
+Public page: `https://<your-domain>/cp-registration` (also linked from the navbar, the homepage and the footer).
+Admin: `/admin` → **CP / Broker Management**.
+
+**Database (migration 2).** The first start of this version creates 7 new tables (`cp_applications`,
+`cp_application_projects`, `cp_documents`, `cp_partners`, `cp_partner_projects`, `cp_status_history`,
+`cp_notifications`) and two counters, then records version 2 in `schema_migrations`. It adds tables only:
+bookings, payments, projects and admin accounts are not altered. It runs once; every statement is
+`IF NOT EXISTS`, so an interrupted start simply completes it next time. SQL: `database/migrations/002_cp_onboarding.sql`.
+- **Before deploying:** export a backup in phpMyAdmin (section 6).
+- **After deploying:** `npm run db:check` should show `schema versions applied: 1, 2` and `All 7 Channel Partner tables present`.
+- **Rollback** (only if the module is withdrawn, and it deletes all CP data): deploy the previous version first, then run
+  `database/migrations/002_cp_onboarding.rollback.sql` in phpMyAdmin. Bookings are not affected.
+
+**Documents** are stored inside the database (`cp_documents`), never in a public folder, and can be opened only by a
+signed-in admin; each view is recorded. Accepted: PDF, JPG, PNG; contents are checked (not just the file name);
+PDFs with scripts are refused. Defaults: 2 MB per file, 10 MB per application (`CP_MAX_FILE_MB`, `CP_MAX_TOTAL_MB`).
+Documents count towards your database size: check the database quota in hPanel occasionally.
+
+**E-mail.** Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` in the Hostinger environment
+(for a Hostinger mailbox: `smtp.hostinger.com`, port `465`). Until then nothing is e-mailed and the admin panel shows
+"not sent – e-mail not configured" for each notification (with a Retry button for later). "Sent" means the mail server
+accepted the message, not that it reached the inbox.
+
+Optional settings: `CP_NOTIFY_EMAIL`, `CP_CONTACT_EMAIL`, `CP_CONTACT_PHONE`, `CP_REQUIRED_DOCUMENTS`
+(e.g. `PAN_CARD`), `CP_SUBMISSIONS_PER_HOUR`, `CP_ALLOW_INTERNATIONAL` — see `.env.example`.
+
+**Tests:** `npm run test:cp` (against a running server on a **test** database; records use `@example.com` e-mails and
+are removed with `npm run db:cleanup-test -- --delete`).
+
+## 9. Dependency security notes
+
+**Fixed**
+- `body-parser` 1.20.9 (used by Express 4.22.3) fixes GHSA-27r3-jxmh-p828 / CVE-2026-111181: a compressed request
+  body with trailing bytes could crash the server. In addition, all request-body parsers use `inflate: false`, so
+  compressed (`Content-Encoding`) request bodies are refused with 415 before any decompression. Browsers and the
+  Razorpay webhook send uncompressed JSON; the webhook signature is still checked against the exact raw bytes.
+- `vite` 8.3.4 fixes the development-server advisories (launch-editor, `server.fs`). Vite runs only for
+  `npm run dev` and `npm run build`; the production server never starts it.
+- `nodemailer` 10.2.1 fixes the address-parser advisories (and CP e-mail addresses are strictly validated).
+
+**Known, not exploitable here (accepted)** — `@grpc/grpc-js` 1.9.16 (GHSA-m9gg-hp2v-232j high,
+GHSA-f596-whhp-79r4 low; fixed in 1.13.6), reported through `firebase` 12.19.0 → `@firebase/firestore` 4.17.2,
+which pins `@grpc/grpc-js` `~1.9.0` (so does the newest firebase, 13.1.0; `npm audit` suggests downgrading
+firebase to 9.14.0, which is not done). Evidence that the vulnerable code never runs:
+- The app imports only `firebase/app` and `firebase/auth` (`src/lib/googleAuth.ts`, admin Google sign-in in the
+  browser). Firestore is imported nowhere.
+- `@grpc/grpc-js` is a Node.js library; Firestore uses it only when Firestore runs on a server. Neither the built
+  site (`dist/`) nor `build/server.js` contains gRPC or Firestore code.
+- The advisories concern gRPC *servers* (`getAuthContext`, server error messages); this app runs no gRPC server.
+Revisit if Firestore is ever added, or when a firebase release allows `@grpc/grpc-js` ≥ 1.13.6.
+
 ## Local development
 
 `npm run dev` runs the TypeScript server with the Vite dev server. With `DB_*` set in `.env` it uses that MySQL
 database; without them it uses `data/db.json`.
+
+**Careful:** if `.env` contains the live Hostinger `DB_*` values, `npm run dev` on your computer connects to the
+**live** database (and a new version applies its migrations there). For development, leave `DB_*` empty or point them
+at a separate test database.
