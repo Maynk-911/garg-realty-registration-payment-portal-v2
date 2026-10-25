@@ -11,6 +11,7 @@ import { PANGOT_ID, PUBLIC_PROJECT_IDS } from '../bookingOptions.js';
 import { APP_ROOT } from './loadEnv.js';
 import { Store, AdminRecord, RegistrationFilter, CpApplicationFilter, DuplicateRecordError, DatabaseUnavailableError } from './store.js';
 import { SEED_PROJECTS, withPangotFixedConfig, configuredAdmin } from './seed.js';
+import { cpReferenceSuffix } from './cpReference.js';
 
 /** Schema migrations after the base schema (database/schema.sql = version 1). Add new ones at the end. */
 const MIGRATIONS = [
@@ -517,7 +518,7 @@ export class MySqlStore implements Store {
   async generateCpApplicationRef() {
     const seq = await this.nextCounter('cp_application_seq');
     const date = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' }).replace(/-/g, '');
-    return `CP-GRG-${date}-${String(seq).padStart(4, '0')}`;
+    return `CP-GRG-${date}-${String(seq).padStart(4, '0')}-${cpReferenceSuffix()}`;
   }
 
   async generateCpPartnerId() {
@@ -573,6 +574,12 @@ export class MySqlStore implements Store {
 
   async getCpApplicationForUpdate(id: string) {
     const rows = await this.q(`SELECT * FROM cp_applications WHERE id = ?${this.conn ? ' FOR UPDATE' : ''}`, [id]);
+    return (await this.cpApplicationsFromRows(rows))[0] || null;
+  }
+
+  async getCpApplicationByRef(applicationRef: string) {
+    // Unique key uq_cp_applications_ref; the column collation is case-insensitive
+    const rows = await this.q('SELECT * FROM cp_applications WHERE application_ref = ? LIMIT 1', [applicationRef]);
     return (await this.cpApplicationsFromRows(rows))[0] || null;
   }
 

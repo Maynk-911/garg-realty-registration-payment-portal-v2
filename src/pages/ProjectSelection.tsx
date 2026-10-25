@@ -162,6 +162,9 @@ export const ProjectSelection: React.FC<ProjectSelectionProps> = ({ projects }) 
             <p className="mt-1 text-sm text-slate-600 leading-relaxed">
               Real estate brokers, consultants and channel partner firms can apply to work with Garg Realty Group. Applications are reviewed by our team.
             </p>
+            <p className="mt-1.5 text-xs text-slate-500">
+              Already applied? <a href="/track-cp-application" className="font-semibold text-[#0f5973] underline">Track your CP application</a>
+            </p>
           </div>
           <a
             href="/cp-registration"

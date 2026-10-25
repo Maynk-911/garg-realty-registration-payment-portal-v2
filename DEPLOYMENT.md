@@ -135,6 +135,31 @@ Optional settings: `CP_NOTIFY_EMAIL`, `CP_CONTACT_EMAIL`, `CP_CONTACT_PHONE`, `C
 **Tests:** `npm run test:cp` (against a running server on a **test** database; records use `@example.com` e-mails and
 are removed with `npm run db:cleanup-test -- --delete`).
 
+### Track CP Application (`/track-cp-application`)
+
+Applicants enter their application reference to see the status of their application, and approved, active partners
+can open their approval certificate and save it as PDF with the browser's Print → Save as PDF. It is free: no OTP,
+SMS, e-mail verification or paid PDF service.
+
+- **Public status page** shows limited information only: status, dates, generic next steps, projects, a masked name
+  (e.g. `R**** S*****`) and, once approved, the CP ID and approved projects. It never shows PAN, mobile, e-mail,
+  address, internal ids, or messages written by administrators (rejection reasons, information requests, suspension notes).
+- **Certificate** (approved and active partners only) shows the full name, company, CP ID, approved projects, dates,
+  a certificate number and a verification code.
+- **References** are `CP-GRG-YYYYMMDD-NNNN-XXXX`: a sequence number plus 4 random characters from a secure random
+  generator (about 923,000 combinations per application), so they cannot practically be guessed. References issued
+  before the random part was added (`CP-GRG-YYYYMMDD-NNNN`) keep working.
+- **Important trade-off:** for new references, the reference is the only thing needed. **Anyone who obtains a new-format
+  reference** (for example a forwarded e-mail or screenshot) **can see that application's status and, if approved,
+  download its certificate with the partner's full name and company.** Applicants are told to keep the reference private.
+- **Older references (no random part)** are guessable from the sequence, so they **never give a certificate on the public
+  page** — they still show the (limited) status, with a notice to contact the partner team. There is no free, secure way to
+  verify those applicants online (their own details are not secrets), so the partner team issues their certificate:
+  Admin → CP / Broker Management → open the application → **Print Approval Certificate** (approved, active partners only;
+  every issue is recorded in the audit trail). Verify the partner before sending it.
+- **Rate limits** per connection: 30 status lookups and 10 certificate requests per 15 minutes
+  (`CP_TRACK_LOOKUPS_PER_15MIN`, `CP_TRACK_CERTIFICATE_TRIES_PER_15MIN`). Every certificate view is in the admin audit trail.
+
 ## 9. Dependency security notes
 
 **Fixed**

@@ -82,6 +82,25 @@ export const CP_DECLARATIONS = [
   { key: 'terms', text: 'I have read and agree to the Privacy Policy and the Terms & Conditions.' }
 ] as const;
 
+// ---------- Application references ----------
+/**
+ * Characters for the random part of a reference: no 0/O or 1/I/L, so it can be read out and typed without mistakes.
+ * 31 characters ^ 4 = about 923,000 combinations per application.
+ */
+export const CP_REF_SUFFIX_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+export const CP_REF_SUFFIX_LENGTH = 4;
+/**
+ * CP-GRG-YYYYMMDD-NNNN-XXXX (current: sequence + random part) or CP-GRG-YYYYMMDD-NNNN (issued before the random
+ * part was added; still accepted so existing applicants can keep tracking).
+ */
+export const CP_REFERENCE_REGEX = /^CP-GRG-\d{8}-\d{4,6}(?:-[2-9A-HJKMNP-Z]{4})?$/;
+export const CP_REFERENCE_EXAMPLE = 'CP-GRG-20261024-0001-K7Q2';
+/**
+ * Issued before the random part existed: guessable from the sequence, so it is never enough on its own for an
+ * approval certificate (the partner team issues those certificates after verifying the partner).
+ */
+export const isLegacyCpReference = (reference: string) => !/-[2-9A-HJKMNP-Z]{4}$/.test(reference.trim().toUpperCase());
+
 // ---------- Format checks (shared so the form and the server agree) ----------
 export const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 export const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;

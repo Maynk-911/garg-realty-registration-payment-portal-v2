@@ -216,7 +216,7 @@ export interface AdminUser {
 
 export interface CpApplication {
   id: string;
-  /** Public application reference, e.g. CP-GRG-20261024-0001 */
+  /** Public application reference, e.g. CP-GRG-20261024-0001-K7Q2 (older ones have no random part) */
   application_ref: string;
   status: CpStatus;
   /** Random id sent by the form; a repeated submission with the same id returns the original application */

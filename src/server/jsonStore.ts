@@ -10,6 +10,7 @@ import { PANGOT_ID, DHOLERA_ID, PUBLIC_PROJECT_IDS } from '../bookingOptions.js'
 import { APP_ROOT } from './loadEnv.js';
 import { Store, AdminRecord, RegistrationFilter, CpApplicationFilter, DuplicateRecordError } from './store.js';
 import { SEED_PROJECTS, DHOLERA_SEED, withPangotFixedConfig, configuredAdmin } from './seed.js';
+import { cpReferenceSuffix } from './cpReference.js';
 
 interface DatabaseSchema {
   projects: Record<string, Project>;
@@ -249,7 +250,7 @@ export class JsonStore implements Store {
     let seq = 0;
     this.mutate(() => { seq = this.data.counters.cp_application_seq = (this.data.counters.cp_application_seq || 0) + 1; });
     const date = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' }).replace(/-/g, '');
-    return `CP-GRG-${date}-${String(seq).padStart(4, '0')}`;
+    return `CP-GRG-${date}-${String(seq).padStart(4, '0')}-${cpReferenceSuffix()}`;
   }
 
   async generateCpPartnerId() {
@@ -292,6 +293,10 @@ export class JsonStore implements Store {
 
   async getCpApplication(id: string) { return clone(this.cp.cp_applications[id] || null); }
   async getCpApplicationForUpdate(id: string) { return this.getCpApplication(id); }
+  async getCpApplicationByRef(applicationRef: string) {
+    const ref = applicationRef.toUpperCase();
+    return clone(Object.values(this.cp.cp_applications).find(a => a.application_ref.toUpperCase() === ref) || null);
+  }
   async getCpApplicationBySubmissionId(clientSubmissionId: string) {
     return clone(Object.values(this.cp.cp_applications).find(a => a.client_submission_id === clientSubmissionId) || null);
   }

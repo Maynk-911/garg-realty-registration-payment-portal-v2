@@ -16,6 +16,7 @@ import { PolicyPages } from './pages/PolicyPages.js';
 import { ProjectSelection } from './pages/ProjectSelection.js';
 import { ProjectDetailsPage } from './pages/ProjectDetailsPage.js';
 import { CpRegistrationPage } from './pages/CpRegistrationPage.js';
+import { TrackCpApplicationPage } from './pages/TrackCpApplicationPage.js';
 import { PANGOT_ID, DHOLERA_ID } from './bookingOptions.js';
 import { Project, Registration } from './types.js';
 
@@ -73,6 +74,8 @@ export default function App() {
       setCurrentView('policy_refund');
     } else if (path === '/cp-registration') {
       setCurrentView('cp_registration');
+    } else if (path === '/track-cp-application') {
+      setCurrentView('track_cp');
     } else {
       setCurrentView('landing');
     }
@@ -107,7 +110,7 @@ export default function App() {
       landing: '/', form: '/register', track: '/track', admin: '/admin',
       pangot: '/pangot', dholera: '/dholera', form_dholera: '/dholera/register',
       policy_terms: '/terms-and-conditions', policy_privacy: '/privacy-policy',
-      policy_refund: '/refund-policy', cp_registration: '/cp-registration', status: `/payment-status/${activeRegistrationId}`
+      policy_refund: '/refund-policy', cp_registration: '/cp-registration', track_cp: '/track-cp-application', status: `/payment-status/${activeRegistrationId}`
     };
     const path = paths[view];
     if (!path) return;
@@ -194,6 +197,9 @@ export default function App() {
         {/* Channel Partner / Broker onboarding (separate from customer bookings) */}
         {currentView === 'cp_registration' && (
           <CpRegistrationPage onNavigateHome={() => navigateTo('landing')} />
+        )}
+        {currentView === 'track_cp' && (
+          <TrackCpApplicationPage onNavigateHome={() => navigateTo('landing')} />
         )}
 
         {currentView === 'policy_terms' && (
