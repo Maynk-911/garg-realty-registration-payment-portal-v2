@@ -13,6 +13,7 @@ import { googleSheetsService, formatRegistrationToRow, GOOGLE_SHEET_COLUMNS, ALL
 import { normalizeUnitOption, getPaymentStatusLabel, PANGOT_ID, DHOLERA_ID, PUBLIC_PROJECT_IDS, PAYMENT_QR_SRC, PANGOT_PAYMENT_MODE } from './src/bookingOptions.js';
 import { toCsv } from './src/server/csv.js';
 import { registerCpRoutes } from './src/server/cpRoutes.js';
+import { registerCpTrackRoutes } from './src/server/cpTrack.js';
 import { cpAwareBodyParser } from './src/server/cpGuard.js';
 
 const app = express();
@@ -1589,6 +1590,8 @@ app.get('/api/admin/google-sheets/preview-row/:id', authenticateAdmin, async (re
 // CHANNEL PARTNER (CP) / BROKER ONBOARDING (src/server/cpRoutes.ts)
 // -------------------------------------------------------------
 registerCpRoutes(app, { authenticateAdmin, sendFailure });
+// Public "Track CP Application": status and approval certificate by application reference (src/server/cpTrack.ts)
+registerCpTrackRoutes(app);
 
 // -------------------------------------------------------------
 // VITE MIDDLEWARE (DEV) & STATIC (PROD)

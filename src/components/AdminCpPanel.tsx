@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
-  AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, CheckCircle2, Download, Eye, FileText, Mail, RefreshCw, Search, Users, X
+  AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, CheckCircle2, Download, Eye, FileText, Mail, Printer, RefreshCw, Search, Users, X
 } from 'lucide-react';
 import { CP_ACTIONS, CP_ACTIONS_NEEDING_REASON, CP_STATUSES, CP_STATUS_LABELS, CpAction, CpStatus } from '../cpOptions.js';
+import { ApprovalCertificate, CpCertificate } from './CpApprovalCertificate.js';
 
 interface AdminCpPanelProps {
   token: string;
@@ -74,6 +76,7 @@ export const AdminCpPanel: React.FC<AdminCpPanelProps> = ({ token, adminRole, on
   const [ackMissingDocs, setAckMissingDocs] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pan, setPan] = useState<string | null>(null);
+  const [certificate, setCertificate] = useState<CpCertificate | null>(null);
 
   const api = async (url: string, init?: RequestInit) => {
     const res = await fetch(url, { ...init, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(init?.headers || {}) } });
@@ -104,6 +107,30 @@ export const AdminCpPanel: React.FC<AdminCpPanelProps> = ({ token, adminRole, on
     }
   };
 
+  // ---------- certificate printing ----------
+  // While <body> has PRINT_CLASS, index.css prints ONLY the certificate copy rendered at the end of <body> (all other
+  // page content is removed from the printout). The class is removed only when the browser fires 'afterprint' —
+  // never on a timer, because some browsers return from window.print() before the print preview is drawn, and never on
+  // a matchMedia('print') change, because Chrome fires a spurious "matches: false" change after 'beforeprint' but
+  // before the page is laid out (that printed the whole admin page). If no signal ever arrives the class stays: that
+  // only affects printing and can only ever print the certificate (or nothing), never admin data.
+  const PRINT_CLASS = 'printing-cp-certificate';
+  const printCleanup = useRef<(() => void) | null>(null);
+  const endCertificatePrint = () => {
+    printCleanup.current?.();
+    printCleanup.current = null;
+    document.body.classList.remove(PRINT_CLASS);
+  };
+  const beginCertificatePrint = () => {
+    endCertificatePrint(); // a repeated click never stacks listeners
+    window.addEventListener('afterprint', endCertificatePrint);
+    printCleanup.current = () => window.removeEventListener('afterprint', endCertificatePrint);
+    document.body.classList.add(PRINT_CLASS);
+    window.print();
+  };
+  // Leaving the CP tab or the admin dashboard: never leave the print state behind
+  useEffect(() => () => endCertificatePrint(), []);
+
   useEffect(() => {
     loadSummary();
     fetch('/api/cp/config').then(r => r.json()).then(c => setProjects(c.projects || [])).catch(() => {});
@@ -113,6 +140,8 @@ export const AdminCpPanel: React.FC<AdminCpPanelProps> = ({ token, adminRole, on
   const openDetail = async (id: string) => {
     setMessage(null);
     setPan(null);
+    endCertificatePrint();
+    setCertificate(null);
     try {
       setDetail(await api(`/api/admin/cp/applications/${id}`));
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -178,6 +207,18 @@ export const AdminCpPanel: React.FC<AdminCpPanelProps> = ({ token, adminRole, on
     }
   };
 
+  // Certificate issued by the partner team (e.g. for older references that cannot download it themselves); recorded
+  const printCertificate = async () => {
+    try {
+      const cert = certificate || (await api(`/api/admin/cp/applications/${detail.application.id}/certificate`)).certificate;
+      setCertificate(cert);
+      // Wait until React has rendered the certificate's print copy, then print
+      requestAnimationFrame(() => requestAnimationFrame(beginCertificatePrint));
+    } catch (e: any) {
+      setMessage({ ok: false, text: e.message });
+    }
+  };
+
   const revealPan = async () => {
     try { setPan((await api(`/api/admin/cp/applications/${detail.application.id}/pan`)).pan_number); } catch (e: any) { setMessage({ ok: false, text: e.message }); }
   };
@@ -224,7 +265,7 @@ export const AdminCpPanel: React.FC<AdminCpPanelProps> = ({ token, adminRole, on
     return (
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <button type="button" onClick={() => { setDetail(null); setMessage(null); }} className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer">
+          <button type="button" onClick={() => { endCertificatePrint(); setCertificate(null); setDetail(null); setMessage(null); }} className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer">
             <ArrowLeft className="w-4 h-4" /> Back to applications
           </button>
           <button type="button" onClick={() => openDetail(a.id)} className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 cursor-pointer">
@@ -248,6 +289,11 @@ export const AdminCpPanel: React.FC<AdminCpPanelProps> = ({ token, adminRole, on
                 <span className={`ml-1 text-[10px] font-bold ${detail.partner.status === 'ACTIVE' ? 'text-emerald-700' : 'text-slate-600'}`}>{detail.partner.status}</span>
               </p>
             )}
+            {a.status === 'APPROVED' && detail.partner?.status === 'ACTIVE' && (
+              <button type="button" onClick={printCertificate} className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold border border-[#b87e2b]/50 text-[#7a4e17] rounded-lg hover:bg-amber-50 cursor-pointer">
+                <Printer className="w-3.5 h-3.5" /> Print Approval Certificate
+              </button>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
             {actions.length === 0 && <span className="text-xs text-slate-400">No further actions for this status.</span>}
@@ -270,6 +316,14 @@ export const AdminCpPanel: React.FC<AdminCpPanelProps> = ({ token, adminRole, on
 
         {message && (
           <div className={`p-3 rounded-lg text-xs border ${message.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>{message.text}</div>
+        )}
+        {certificate && (
+          <div className="space-y-2">
+            <p className="text-[11px] text-slate-500">Approval certificate (issued by the partner team; recorded in the audit trail). Send it only after verifying the partner. Use "Save as PDF" in the print window.</p>
+            <div className="cp-certificate-preview"><ApprovalCertificate certificate={certificate} /></div>
+            {/* Print copy: a direct child of <body>, hidden on screen; the only thing printed while PRINT_CLASS is set */}
+            {createPortal(<div className="cp-certificate-print-root"><ApprovalCertificate certificate={certificate} /></div>, document.body)}
+          </div>
         )}
         {a.info_request_message && a.status === 'ADDITIONAL_INFO_REQUIRED' && (
           <div className="p-3 rounded-lg text-xs border bg-violet-50 border-violet-200 text-violet-900 whitespace-pre-line"><b>Information requested:</b> {a.info_request_message}</div>

@@ -70,7 +70,7 @@ export interface Store {
   getAdminByEmail(email: string): Promise<AdminRecord | null>;
 
   // Channel Partner (CP) / Broker onboarding
-  /** Next application reference (CP-GRG-YYYYMMDD-NNNN); the sequence is atomic and never reused */
+  /** Next application reference (CP-GRG-YYYYMMDD-NNNN-XXXX): atomic sequence, never reused, plus a random part */
   generateCpApplicationRef(): Promise<string>;
   /** Next official CP ID (GRG-CP-NNNN); call inside the approval transaction */
   generateCpPartnerId(): Promise<string>;
@@ -82,6 +82,8 @@ export interface Store {
   /** Same as getCpApplication, but locks the row until the surrounding transaction ends (MySQL) */
   getCpApplicationForUpdate(id: string): Promise<CpApplication | null>;
   getCpApplicationBySubmissionId(clientSubmissionId: string): Promise<CpApplication | null>;
+  /** By public application reference (exact, case-insensitive; new and older formats) */
+  getCpApplicationByRef(applicationRef: string): Promise<CpApplication | null>;
   /** An application that still holds this mobile number or e-mail (any status except REJECTED) */
   findActiveCpApplication(mobile: string, email?: string): Promise<CpApplication | null>;
   listCpApplications(filter: CpApplicationFilter): Promise<{ items: CpApplication[]; total: number }>;

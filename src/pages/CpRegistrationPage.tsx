@@ -236,6 +236,9 @@ export const CpRegistrationPage: React.FC<CpRegistrationPageProps> = ({ onNaviga
           <p className="mt-4 text-xs text-slate-500">
             Please note your application reference for any correspondence. {emailNote}
           </p>
+          <p className="mt-2 text-xs text-slate-500 no-print">
+            You can check its status at any time on <a href={`/track-cp-application?ref=${encodeURIComponent(confirmation.reference)}`} className="font-semibold text-[#0f5973] underline">Track CP Application</a> using this reference number.
+          </p>
           <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center no-print">
             <button type="button" onClick={() => window.print()} className="px-5 py-2.5 border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold uppercase tracking-wider rounded-lg cursor-pointer">
               Print / Save

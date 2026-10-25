@@ -17,6 +17,19 @@
   .print-only {
     display: block !important;
   }
+  /* Admin panel "Print Approval Certificate" (class on <body> only while that print is in progress): everything except
+     the certificate's print copy is removed from the printout, so no admin content and no trailing blank pages */
+  body.printing-cp-certificate > *:not(.cp-certificate-print-root) {
+    display: none !important;
+  }
+  body.printing-cp-certificate > .cp-certificate-print-root {
+    display: block !important;
+  }
+}
+
+/* The certificate's print copy (admin panel) is never shown on screen */
+.cp-certificate-print-root {
+  display: none;
 }
 
 /* Official Google Sign-In Button Styles */

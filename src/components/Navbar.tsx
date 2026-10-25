@@ -1,6 +1,6 @@
 import React from 'react';
 import { BrandLogo } from './BrandLogo.js';
-import { Search, Lock, Handshake } from 'lucide-react';
+import { Search, Lock, Handshake, BadgeCheck } from 'lucide-react';
 
 interface NavbarProps {
   currentView: string;
@@ -32,8 +32,23 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate }) => {
             title="Brokers and channel partners: apply to work with Garg Realty Group"
           >
             <Handshake className="w-3.5 h-3.5 text-[#b87e2b]" />
-            <span className="hidden md:inline">Become a Channel Partner</span>
-            <span className="hidden sm:inline md:hidden">Partners</span>
+            <span className="hidden lg:inline">Become a Channel Partner</span>
+            <span className="hidden sm:inline lg:hidden">Partners</span>
+          </a>
+
+          <a
+            href="/track-cp-application"
+            className={`text-xs font-semibold px-2.5 py-1.5 rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
+              currentView === 'track_cp'
+                ? 'text-[#0f5973] bg-teal-50'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+            aria-label="Track CP Application"
+            title="Channel partners: check the status of your application"
+          >
+            <BadgeCheck className="w-3.5 h-3.5 text-[#b87e2b]" />
+            <span className="hidden lg:inline">Track CP Application</span>
+            <span className="hidden sm:inline lg:hidden">Track CP</span>
           </a>
 
           <a

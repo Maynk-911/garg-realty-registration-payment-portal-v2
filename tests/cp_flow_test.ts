@@ -131,7 +131,7 @@ async function main() {
   const r1 = await api('POST', '/api/cp/applications', indiv);
   const ref1: string = r1.json?.application?.reference;
   check('3. Valid individual broker application is accepted (201)', r1.status === 201 && r1.json?.success === true, r1.json);
-  check('3b. Reference format CP-GRG-YYYYMMDD-NNNN and status Pending Review', /^CP-GRG-\d{8}-\d{4,}$/.test(ref1 || '') && r1.json?.application?.status === 'PENDING' && r1.json?.application?.status_label === 'Pending Review');
+  check('3b. Reference format CP-GRG-YYYYMMDD-NNNN-XXXX (random part) and status Pending Review', /^CP-GRG-\d{8}-\d{4,}-[2-9A-HJKMNP-Z]{4}$/.test(ref1 || '') && r1.json?.application?.status === 'PENDING' && r1.json?.application?.status_label === 'Pending Review');
   check('3c. Confirmation shows name and date but no internal database id', r1.json?.application?.full_name === indiv.full_name && Boolean(r1.json?.application?.submitted_at) && !JSON.stringify(r1.json).includes('cpa_'));
 
   // Valid company with documents (PDF, PNG, JPEG)

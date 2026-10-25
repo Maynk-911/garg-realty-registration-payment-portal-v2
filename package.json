@@ -23,7 +23,8 @@
     "lint": "tsc --noEmit",
     "test:cp": "tsx tests/cp_flow_test.ts",
     "test:cp-ratelimit": "tsx tests/cp_rate_limit_test.ts",
-    "test:body-parsing": "tsx tests/body_parsing_test.ts"
+    "test:body-parsing": "tsx tests/body_parsing_test.ts",
+    "test:cp-track": "tsx tests/cp_track_test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

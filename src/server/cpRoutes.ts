@@ -8,6 +8,7 @@ import { CP_SUBMIT_PATH, MAX_FILE_BYTES, MAX_TOTAL_BYTES, MB, clientIp, passedCp
 import type { Store } from './store.js';
 import { toCsv } from './csv.js';
 import { deliverCpNotification, cpEmailConfigured, cpInternalRecipient } from './cpNotifications.js';
+import { buildCpCertificate, certificateEligible } from './cpTrack.js';
 import { CpApplication, CpDocument, CpNotification, CpNotificationEvent, CpPartner, CpStatusHistoryEntry } from '../types.js';
 import {
   CP_ACTIONS, CP_ACTIONS_NEEDING_REASON, CP_DECLARATIONS, CP_DECLARATION_VERSION, CP_DOCUMENT_TYPES, CP_STATUSES, CP_STATUS_LABELS,
@@ -520,6 +521,23 @@ export function registerCpRoutes(app: Express, { authenticateAdmin, sendFailure 
     const admin = adminOf(req);
     await db.logAudit({ admin_id: admin.id, action: 'CP_PAN_VIEWED', entity_type: 'CP_APPLICATION', entity_id: a.id, new_value: { admin_email: admin.email }, ip_address: clientIp(req) });
     res.json({ pan_number: a.pan_number || null });
+  });
+
+  // Approval certificate issued by the partner team (any reference format, e.g. for older references that cannot
+  // download it publicly). Same rule as the public page: approved application and active partner only. Recorded.
+  app.get('/api/admin/cp/applications/:id/certificate', authenticateAdmin, async (req: Request, res: Response) => {
+    const a = await db.getCpApplication(req.params.id);
+    if (!a) return res.status(404).json({ error: 'Application not found' });
+    const partner = await db.getCpPartnerByApplication(a.id);
+    if (!certificateEligible(a, partner)) {
+      return res.status(409).json({ error: 'An approval certificate is available only for approved, active channel partners.' });
+    }
+    const admin = adminOf(req);
+    await db.logAudit({
+      admin_id: admin.id, action: 'CP_CERTIFICATE_ISSUED_BY_ADMIN', entity_type: 'CP_APPLICATION', entity_id: a.id,
+      new_value: { cp_id: partner.cp_id, admin_email: admin.email }, ip_address: clientIp(req)
+    });
+    res.json({ certificate: await buildCpCertificate(a, partner) });
   });
 
   // Private documents: only through this signed-in endpoint, never a public URL
