@@ -1,10 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useEffect, useState } from 'react';
 import {
   AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, CheckCircle2, Download, Eye, FileText, Mail, Printer, RefreshCw, Search, Users, X
 } from 'lucide-react';
 import { CP_ACTIONS, CP_ACTIONS_NEEDING_REASON, CP_STATUSES, CP_STATUS_LABELS, CpAction, CpStatus } from '../cpOptions.js';
-import { ApprovalCertificate, CpCertificate } from './CpApprovalCertificate.js';
+import { ApprovalCertificate, CertificatePrintCopy, CpCertificate, useCertificatePrint } from './CpApprovalCertificate.js';
 
 interface AdminCpPanelProps {
   token: string;
@@ -107,29 +106,8 @@ export const AdminCpPanel: React.FC<AdminCpPanelProps> = ({ token, adminRole, on
     }
   };
 
-  // ---------- certificate printing ----------
-  // While <body> has PRINT_CLASS, index.css prints ONLY the certificate copy rendered at the end of <body> (all other
-  // page content is removed from the printout). The class is removed only when the browser fires 'afterprint' —
-  // never on a timer, because some browsers return from window.print() before the print preview is drawn, and never on
-  // a matchMedia('print') change, because Chrome fires a spurious "matches: false" change after 'beforeprint' but
-  // before the page is laid out (that printed the whole admin page). If no signal ever arrives the class stays: that
-  // only affects printing and can only ever print the certificate (or nothing), never admin data.
-  const PRINT_CLASS = 'printing-cp-certificate';
-  const printCleanup = useRef<(() => void) | null>(null);
-  const endCertificatePrint = () => {
-    printCleanup.current?.();
-    printCleanup.current = null;
-    document.body.classList.remove(PRINT_CLASS);
-  };
-  const beginCertificatePrint = () => {
-    endCertificatePrint(); // a repeated click never stacks listeners
-    window.addEventListener('afterprint', endCertificatePrint);
-    printCleanup.current = () => window.removeEventListener('afterprint', endCertificatePrint);
-    document.body.classList.add(PRINT_CLASS);
-    window.print();
-  };
-  // Leaving the CP tab or the admin dashboard: never leave the print state behind
-  useEffect(() => () => endCertificatePrint(), []);
+  // Certificate-only printing (see useCertificatePrint): never prints admin content; cleaned up when leaving the panel
+  const { startPrint: beginCertificatePrint, endPrint: endCertificatePrint } = useCertificatePrint();
 
   useEffect(() => {
     loadSummary();
@@ -321,8 +299,7 @@ export const AdminCpPanel: React.FC<AdminCpPanelProps> = ({ token, adminRole, on
           <div className="space-y-2">
             <p className="text-[11px] text-slate-500">Approval certificate (issued by the partner team; recorded in the audit trail). Send it only after verifying the partner. Use "Save as PDF" in the print window.</p>
             <div className="cp-certificate-preview"><ApprovalCertificate certificate={certificate} /></div>
-            {/* Print copy: a direct child of <body>, hidden on screen; the only thing printed while PRINT_CLASS is set */}
-            {createPortal(<div className="cp-certificate-print-root"><ApprovalCertificate certificate={certificate} /></div>, document.body)}
+            <CertificatePrintCopy certificate={certificate} />
           </div>
         )}
         {a.info_request_message && a.status === 'ADDITIONAL_INFO_REQUIRED' && (

@@ -99,7 +99,10 @@ export const CP_REFERENCE_EXAMPLE = 'CP-GRG-20261024-0001-K7Q2';
  * Issued before the random part existed: guessable from the sequence, so it is never enough on its own for an
  * approval certificate (the partner team issues those certificates after verifying the partner).
  */
-export const isLegacyCpReference = (reference: string) => !/-[2-9A-HJKMNP-Z]{4}$/.test(reference.trim().toUpperCase());
+// The whole format is checked, not just the ending: an older reference's sequence number can itself look like a random
+// part (e.g. CP-GRG-20200102-5678), and must still count as older.
+export const isLegacyCpReference = (reference: string) =>
+  !/^CP-GRG-\d{8}-\d{4,6}-[2-9A-HJKMNP-Z]{4}$/.test(reference.trim().toUpperCase());
 
 // ---------- Format checks (shared so the form and the server agree) ----------
 export const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;

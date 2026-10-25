@@ -24,7 +24,19 @@
   }
   body.printing-cp-certificate > .cp-certificate-print-root {
     display: block !important;
+    page: cp-certificate;
   }
+}
+
+/* Approval certificate printout: A4 (named page, so other printouts keep the browser's paper setting); colours and
+   section bars print even when "Background graphics" is off */
+@page cp-certificate {
+  size: A4;
+  margin: 12mm;
+}
+.cp-certificate {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 
 /* The certificate's print copy (admin panel) is never shown on screen */
