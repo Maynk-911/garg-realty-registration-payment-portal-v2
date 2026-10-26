@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Download, Handshake, Search, AlertCircle } from 'lucide-react';
-import { ApprovalCertificate, CpCertificate as Certificate, longDate } from '../components/CpApprovalCertificate.js';
+import { ApprovalCertificate, CertificatePrintCopy, CpCertificate as Certificate, longDate, useCertificatePrint } from '../components/CpApprovalCertificate.js';
 import { CP_REFERENCE_EXAMPLE, CP_REFERENCE_REGEX } from '../cpOptions.js';
 
 interface TrackCpApplicationPageProps {
@@ -47,6 +47,8 @@ export const TrackCpApplicationPage: React.FC<TrackCpApplicationPageProps> = ({ 
   const [certError, setCertError] = useState('');
   const [certificate, setCertificate] = useState<Certificate | null>(null);
   const printWhenReady = useRef(false);
+  // Certificate-only printing: the PDF never contains the navigation, tracking form or status card
+  const { startPrint, endPrint } = useCertificatePrint();
 
   // Reference can be passed in the link, e.g. from the registration confirmation: /track-cp-application?ref=CP-GRG-...
   useEffect(() => {
@@ -56,7 +58,8 @@ export const TrackCpApplicationPage: React.FC<TrackCpApplicationPageProps> = ({ 
   useEffect(() => {
     if (certificate && printWhenReady.current) {
       printWhenReady.current = false;
-      setTimeout(() => window.print(), 100);
+      // Wait until React has rendered the certificate's print copy, then print
+      requestAnimationFrame(() => requestAnimationFrame(startPrint));
     }
   }, [certificate]);
 
@@ -64,6 +67,7 @@ export const TrackCpApplicationPage: React.FC<TrackCpApplicationPageProps> = ({ 
     e.preventDefault();
     if (busy) return;
     const ref = reference.trim().toUpperCase();
+    endPrint();
     setError(''); setApplication(null); setCertificate(null); setCertError('');
     if (!CP_REFERENCE_REGEX.test(ref)) return setError(`Enter your full application reference, e.g. ${CP_REFERENCE_EXAMPLE}.`);
     setBusy(true);
@@ -81,7 +85,7 @@ export const TrackCpApplicationPage: React.FC<TrackCpApplicationPageProps> = ({ 
 
   const getCertificate = async () => {
     if (busy || !application) return;
-    if (certificate) { window.print(); return; }
+    if (certificate) { startPrint(); return; }
     setCertError('');
     setBusy(true);
     try {
@@ -164,9 +168,9 @@ export const TrackCpApplicationPage: React.FC<TrackCpApplicationPageProps> = ({ 
               <div className="mt-6 border-t border-slate-100 pt-5 space-y-3">
                 {certError && <p role="alert" className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-3">{certError}</p>}
                 <button type="button" onClick={getCertificate} disabled={busy} className="w-full px-5 py-3 bg-[#b87e2b] hover:bg-[#a66f24] text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60">
-                  <Download className="w-4 h-4" aria-hidden="true" /> {certificate ? 'Print / Save as PDF' : 'Download Approval Certificate'}
+                  <Download className="w-4 h-4" aria-hidden="true" /> Download Approval Certificate (PDF)
                 </button>
-                <p className="text-[11px] text-slate-500">The certificate opens in your browser's print window. Choose "Save as PDF" to download it.</p>
+                <p className="text-[11px] text-slate-500">The certificate opens in your browser's print window (A4). Choose "Save as PDF" as the destination to download it.</p>
               </div>
             )}
             {application.certificate_from_partner_team && (
@@ -185,6 +189,7 @@ export const TrackCpApplicationPage: React.FC<TrackCpApplicationPageProps> = ({ 
         )}
 
         {certificate && <ApprovalCertificate certificate={certificate} />}
+        {certificate && <CertificatePrintCopy certificate={certificate} />}
 
         <div className="no-print text-center">
           <button type="button" onClick={onNavigateHome} className="text-xs text-slate-500 hover:text-slate-800 cursor-pointer">Back to home</button>

@@ -80,6 +80,10 @@ async function main() {
   const certUnknownLegacy = await certificate('CP-GRG-20990101-0004');
   check('6b. Certificate: invalid reference 400, unknown new-format reference 404, any older-format reference 403 (no lookup, reveals nothing)',
     certInvalid.status === 400 && certUnknown.status === 404 && certUnknownLegacy.status === 403 && certUnknownLegacy.json?.code === 'LEGACY_REFERENCE', [certInvalid.status, certUnknown.status, certUnknownLegacy.status]);
+  // An older sequence number made only of 2-9 looks like a random part on its own; it must still count as older
+  const certLookalike = await certificate('CP-GRG-20990101-2345');
+  check('6c. An older reference whose number looks like a random part (…-2345) is still refused as older (403)',
+    certLookalike.status === 403 && certLookalike.json?.code === 'LEGACY_REFERENCE', certLookalike.status);
 
   // ---------- under review / additional information ----------
   // ---------- reference privacy: random part ----------
@@ -162,7 +166,8 @@ async function main() {
     const oldCpId = (await act(await idOf(Old.ref), 'APPROVE')).json?.partner?.cp_id;
     const mysql = (await import('mysql2/promise')).default;
     const conn = await mysql.createConnection({ host: process.env.DB_HOST, port: Number(process.env.DB_PORT), user: process.env.DB_USER, password: process.env.DB_PASSWORD, database: process.env.DB_NAME });
-    const legacyRef = `CP-GRG-20200101-${String(crypto.randomInt(1000, 9999))}`;
+    // Digits 2-9 only: the hardest case, as the number alone looks like a random part
+    const legacyRef = `CP-GRG-20200101-${Array.from({ length: 4 }, () => crypto.randomInt(2, 10)).join('')}`;
     const [upd]: any = await conn.query("UPDATE cp_applications SET application_ref = ? WHERE application_ref = ? AND email LIKE '%@example.com'", [legacyRef, Old.ref]);
     await conn.query('UPDATE cp_partners SET application_ref = ? WHERE application_ref = ?', [legacyRef, Old.ref]);
     await conn.end();
