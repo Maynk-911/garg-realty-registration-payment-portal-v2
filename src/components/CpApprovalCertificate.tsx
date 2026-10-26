@@ -23,11 +23,11 @@ export const longDate = (value?: string | null) => {
 };
 
 const Section: React.FC<{ title: string; rows: [string, React.ReactNode][] }> = ({ title, rows }) => (
-  <div className="mb-4">
+  <div className="mb-4 print:mb-3">
     <div className="bg-[#0f5973] text-white font-bold text-xs uppercase px-3 py-1.5 tracking-wide">{title}</div>
     <div className="border border-slate-300 border-t-0 divide-y divide-slate-200">
       {rows.map(([label, value]) => (
-        <div key={label} className="grid grid-cols-1 sm:grid-cols-4 px-3 py-1.5 items-center">
+        <div key={label} className="grid grid-cols-1 sm:grid-cols-4 px-3 py-1.5 print:py-1 items-center">
           <span className="font-semibold text-slate-600 sm:col-span-1">{label}</span>
           <span className="font-medium text-slate-900 sm:col-span-3">{value}</span>
         </div>
@@ -41,7 +41,7 @@ const Section: React.FC<{ title: string; rows: [string, React.ReactNode][] }> = 
 export const ApprovalCertificate: React.FC<{ certificate: CpCertificate }> = ({ certificate: c }) => {
   const issued = new Date(c.issued_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'long', timeStyle: 'short' });
   return (
-    <article className="cp-certificate bg-white border border-slate-300 shadow-md p-6 sm:p-10 font-sans text-slate-800 text-xs sm:text-sm print:shadow-none"
+    <article className="cp-certificate bg-white border border-slate-300 shadow-md p-6 sm:p-10 font-sans text-slate-800 text-xs sm:text-sm print:shadow-none print:p-7 print:text-[13px] print:flex print:flex-col"
       aria-label="Channel Partner Approval Certificate" data-testid="cp-certificate">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-3">
         <BrandLogo />
@@ -55,7 +55,7 @@ export const ApprovalCertificate: React.FC<{ certificate: CpCertificate }> = ({ 
 
       <div className="h-[2px] w-full bg-[#b87e2b] mb-4"></div>
 
-      <div className="mb-5 flex flex-col sm:flex-row sm:items-center gap-4">
+      <div className="mb-5 print:mb-4 flex flex-col sm:flex-row sm:items-center gap-4">
         <p className="flex-1 text-slate-700 leading-relaxed">
           This is to certify that <b className="text-slate-900">{c.full_name}</b>
           {c.company_name && <> of <b className="text-slate-900">{c.company_name}</b></>} has been approved as a Channel Partner of
@@ -84,12 +84,12 @@ export const ApprovalCertificate: React.FC<{ certificate: CpCertificate }> = ({ 
         ['Issued On', `${issued} (IST)`]
       ]} />
 
-      <div className="mb-6 border border-slate-300 p-3">
-        <p className="text-xs text-slate-700 mb-6">
+      <div className="mb-6 print:mb-4 border border-slate-300 p-3">
+        <p className="text-xs text-slate-700 mb-6 print:mb-3">
           This system-generated certificate confirms the Channel Partner's approval as on the date of issue. Its details can be
           confirmed with the Garg Realty Group partner team using the verification code.
         </p>
-        <div className="grid grid-cols-2 gap-8 pt-4 border-t border-slate-200">
+        <div className="grid grid-cols-2 gap-8 pt-4 print:pt-3 border-t border-slate-200">
           <div>
             <p className="text-xs text-slate-500 font-semibold mb-2">Channel Partner</p>
             <div className="h-10 border-b border-dashed border-slate-400 flex items-end pb-1 font-serif text-slate-800 text-sm italic">{c.full_name}</div>
@@ -101,7 +101,7 @@ export const ApprovalCertificate: React.FC<{ certificate: CpCertificate }> = ({ 
         </div>
       </div>
 
-      <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-600 gap-2">
+      <div className="pt-4 print:mt-auto border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-600 gap-2">
         <div className="font-mono text-[11px] text-slate-400">CP ID: {c.cp_id} · Ref: {c.application_ref}</div>
         <div className="font-semibold text-slate-700">Thanks & Regards | Garg Residency Private Limited</div>
       </div>
@@ -111,13 +111,18 @@ export const ApprovalCertificate: React.FC<{ certificate: CpCertificate }> = ({ 
 
 // ---------- certificate-only printing (Print → Save as PDF) ----------
 const PRINT_CLASS = 'printing-cp-certificate';
+// Page settings exist only while the certificate prints, so booking receipts keep the browser's own page settings.
+// A4 without page margins: the certificate brings its own margin, and the browser has no room left for its
+// date / URL / page-number header and footer.
+const PAGE_STYLE_ID = 'cp-certificate-page-style';
+const PAGE_STYLE = '@page { size: A4; margin: 0; }';
 
 /** Copy of the certificate rendered as a direct child of <body>: hidden on screen, the only thing printed while printing */
 export const CertificatePrintCopy: React.FC<{ certificate: CpCertificate }> = ({ certificate }) =>
   createPortal(<div className="cp-certificate-print-root"><ApprovalCertificate certificate={certificate} /></div>, document.body);
 
 /**
- * While <body> has PRINT_CLASS, index.css prints ONLY the certificate print copy (on an A4 page); all other page content
+ * While <body> has PRINT_CLASS, index.css prints ONLY the certificate print copy (one A4 page); all other page content
  * is removed from the printout. The class is removed only when the browser fires 'afterprint' — never on a timer,
  * because some browsers return from window.print() before the print preview is drawn, and never on a
  * matchMedia('print') change, because Chrome fires a spurious "matches: false" change after 'beforeprint' but before the
@@ -130,6 +135,7 @@ export function useCertificatePrint() {
     cleanup.current?.();
     cleanup.current = null;
     document.body.classList.remove(PRINT_CLASS);
+    document.getElementById(PAGE_STYLE_ID)?.remove();
   }, []);
   const startPrint = useCallback(async () => {
     // The logo must have loaded, or the PDF would be saved without it
@@ -138,6 +144,10 @@ export function useCertificatePrint() {
     endPrint(); // a repeated click never stacks listeners
     window.addEventListener('afterprint', endPrint);
     cleanup.current = () => window.removeEventListener('afterprint', endPrint);
+    const pageStyle = document.createElement('style');
+    pageStyle.id = PAGE_STYLE_ID;
+    pageStyle.textContent = PAGE_STYLE;
+    document.head.appendChild(pageStyle);
     document.body.classList.add(PRINT_CLASS);
     window.print();
   }, [endPrint]);

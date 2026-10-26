@@ -1,6 +1,16 @@
 Homepage project card images — sources and licences
 =====================================================
 
+In use on the "Choose Your Project" cards:
+
+Pangot_0000001.webp  Supplied by Garg Realty Group for the Pangot card (no third-party credit). Optimised WebP
+                     (1600 px wide) of the original Pangot_0000001.png, which is not deployed.
+Dholera_000001.webp  Supplied by Garg Realty Group for the Dholera card (no third-party credit). Optimised WebP
+                     (1600 px wide) of the original Dholera_000001.png, which is not deployed. Shows the smart-city
+                     region, not the project's own plots, so the card labels it "Representative image".
+
+No longer shown on the cards (kept for reference; their licences required the credits below):
+
 pangot-himalayan-resort.jpg
   Original: "Beauty of pangadh.jpg" (Pangot / Pangadh, Nainital, Uttarakhand), 2016
   Author:   raj

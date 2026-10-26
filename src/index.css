@@ -17,23 +17,35 @@
   .print-only {
     display: block !important;
   }
-  /* Admin panel "Print Approval Certificate" (class on <body> only while that print is in progress): everything except
-     the certificate's print copy is removed from the printout, so no admin content and no trailing blank pages */
+  /* Approval certificate printing (class on <body> only while that print is in progress, on the Track CP Application
+     page and in the admin panel): everything except the certificate's print copy is removed from the printout */
   body.printing-cp-certificate > *:not(.cp-certificate-print-root) {
     display: none !important;
   }
+  /* Exactly one A4 sheet (the page itself has no margin while the certificate prints, see useCertificatePrint): a fixed
+     box with the certificate's own 10 mm margin. 296 mm rather than 297 mm, so rounding can never start a second page;
+     the certificate fits with room to spare (checked in the tests), overflow is only a last-resort guard. */
+  body.printing-cp-certificate {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
   body.printing-cp-certificate > .cp-certificate-print-root {
     display: block !important;
-    page: cp-certificate;
+    box-sizing: border-box;
+    width: 210mm;
+    height: 296mm;
+    padding: 10mm;
+    overflow: hidden;
+    break-inside: avoid;
+    break-after: avoid;
+  }
+  body.printing-cp-certificate > .cp-certificate-print-root > .cp-certificate {
+    box-sizing: border-box;
+    height: 100%;
   }
 }
 
-/* Approval certificate printout: A4 (named page, so other printouts keep the browser's paper setting); colours and
-   section bars print even when "Background graphics" is off */
-@page cp-certificate {
-  size: A4;
-  margin: 12mm;
-}
+/* Approval certificate: colours and section bars print even when "Background graphics" is off */
 .cp-certificate {
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;

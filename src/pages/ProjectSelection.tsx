@@ -18,14 +18,16 @@ export const ProjectSelection: React.FC<ProjectSelectionProps> = ({ projects }) 
       title: 'Pangot – Sukkoon Resort, Nainital',
       location: 'Pangot, Nainital, Uttarakhand',
       blurb: 'Scenic Himalayan hill retreat with co-ownership and full-ownership units.',
-      // Genuine photo taken at Pangot. Licence requires the credit shown on the card.
+      // Image supplied by Garg Realty Group (no third-party credit needed)
       image: {
-        src: '/images/pangot-himalayan-resort.jpg',
-        alt: 'Himalayan mountain scenery at Pangot, Nainital',
-        position: 'center 30%',
+        src: '/images/Pangot_0000001.webp',
+        alt: 'Hillside cottages among pine forests at Pangot, Nainital',
+        width: 1600,
+        height: 800,
+        position: 'center 62%',
         representative: false,
-        credit: 'Photo: raj, CC BY-SA 4.0',
-        creditHref: 'https://commons.wikimedia.org/wiki/File:Beauty_of_pangadh.jpg'
+        credit: null as string | null,
+        creditHref: null as string | null
       },
       href: '/pangot',
       // Pangot's verified, existing terms
@@ -40,15 +42,17 @@ export const ProjectSelection: React.FC<ProjectSelectionProps> = ({ projects }) 
       title: dholera?.display_name || 'Dholera – Smart City Plots, Gujarat',
       location: dholera?.location || 'Dholera, Gujarat',
       blurb: dholera?.booking_enabled && dholera.tagline ? dholera.tagline : 'Plots in the Dholera smart city region of Gujarat.',
-      // No licensed photo of Dholera's own development was available: a representative planned-road image,
-      // labelled as such on the card so it is not presented as the project. Licence requires the credit shown.
+      // Image supplied by Garg Realty Group (no third-party credit needed). It shows the smart-city region rather than
+      // a photograph of the project's own plots, so it stays labelled as a representative image.
       image: {
-        src: '/images/dholera-smart-city.jpg',
-        alt: 'Smart city infrastructure and planned development',
-        position: 'center 62%',
+        src: '/images/Dholera_000001.webp',
+        alt: 'Smart city skyline, lake and planned roads in the Dholera region',
+        width: 1600,
+        height: 900,
+        position: 'center 55%',
         representative: true,
-        credit: 'Photo: iMahesh, CC BY-SA 4.0',
-        creditHref: 'https://commons.wikimedia.org/wiki/File:Seed_Access_Road_from_Vijayawada_West_Bypass.jpg'
+        credit: null as string | null,
+        creditHref: null as string | null
       },
       href: '/dholera',
       // Only figures an admin has published are shown
@@ -88,8 +92,8 @@ export const ProjectSelection: React.FC<ProjectSelectionProps> = ({ projects }) 
                   <img
                     src={card.image.src}
                     alt={card.image.alt}
-                    width={1600}
-                    height={1067}
+                    width={card.image.width}
+                    height={card.image.height}
                     decoding="async"
                     className="absolute inset-0 w-full h-full object-cover"
                     style={{ objectPosition: card.image.position }}
@@ -109,14 +113,16 @@ export const ProjectSelection: React.FC<ProjectSelectionProps> = ({ projects }) 
                   }`}>
                     {card.open ? 'Bookings Open' : 'Bookings Opening Soon'}
                   </span>
-                  <a
-                    href={card.image.creditHref}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="absolute bottom-1.5 right-2.5 z-10 text-[9px] text-white/80 hover:text-white hover:underline"
-                  >
-                    {card.image.credit}
-                  </a>
+                  {card.image.credit && card.image.creditHref && (
+                    <a
+                      href={card.image.creditHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="absolute bottom-1.5 right-2.5 z-10 text-[9px] text-white/80 hover:text-white hover:underline"
+                    >
+                      {card.image.credit}
+                    </a>
+                  )}
                 </div>
                 <div className="p-6 flex-1 flex flex-col">
                   <h2 className="text-xl sm:text-2xl font-extrabold text-[#0f5973] font-['Playfair_Display'] leading-snug">
